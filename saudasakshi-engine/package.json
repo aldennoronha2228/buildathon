@@ -1,0 +1,11 @@
+{
+  "name": "saudasakshi-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SaudaSakshi: transcript -> agreement with escrow, on a single AWS Lambda",
+  "main": "index.mjs",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1175.0"
+  }
+}

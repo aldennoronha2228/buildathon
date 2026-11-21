@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SaudaSakshi</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Cpath d='M9 21c3 2 11 2 14-1' stroke='%2338bdf8' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='13' r='2' fill='%23fff'/%3E%3Ccircle cx='21' cy='13' r='2' fill='%23fff'/%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --ink:#0f172a; --brand:#1d4ed8; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+  .card { background:#fff; border:1px solid #e7e5e4; border-radius:16px; box-shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px -12px rgba(15,23,42,.12); }
+  .grad { background: radial-gradient(1200px 500px at 10% -10%, #dbeafe 0%, rgba(219,234,254,0) 60%), radial-gradient(900px 400px at 90% 0%, #fae8ff 0%, rgba(250,232,255,0) 55%); }
+  .spin { animation: spin 900ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade { animation: fade .35s ease both; }
+  @keyframes fade { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform:none;} }
+  pre.agree { white-space: pre-wrap; word-break: break-word; font-family: ui-sans-serif, system-ui, sans-serif; line-height:1.7; }
+  .tabbtn[aria-selected="true"] { background:#0f172a; color:#fff; border-color:#0f172a; }
+  .rolebtn[aria-pressed="true"] { background:#0f172a; color:#fff; border-color:#0f172a; }
+  details > summary { cursor:pointer; list-style:none; }
+  details > summary::-webkit-details-marker { display:none; }
+  .sticky-bar { backdrop-filter: blur(8px); background: rgba(255,255,255,.8); }
+  .rowlink { cursor:pointer; }
+  .rowlink:hover { border-color:#94a3b8; background:#f8fafc; }
+</style>
+</head>
+<body class="grad min-h-screen text-slate-800 antialiased">
+
+<div class="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+
+  <header class="flex items-start justify-between gap-4 mb-8">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900">SaudaSakshi</h1>
+      <p class="mt-2 text-slate-600 max-w-xl">Paste a messy chat. Get a written agreement with escrow, proof checks and the questions still left to ask.</p>
+    </div>
+    <div class="flex flex-col items-end gap-2 mt-2">
+      <div class="hidden sm:flex items-center gap-2 text-xs text-slate-500">
+        <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1 font-medium">Full escrow</span>
+        <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2.5 py-1 font-medium">No advance</span>
+      </div>
+      <div id="who" class="hidden text-xs text-slate-600">
+        Signed in as <span id="who-name" class="font-semibold text-slate-900"></span>
+        <button id="signout" class="ml-2 underline decoration-slate-300 underline-offset-2 text-slate-500 hover:text-slate-900 transition">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sign-in card (only when no user ID is stored) -->
+  <section id="signinCard" class="card p-5 sm:p-6 hidden">
+    <h2 class="text-sm font-semibold text-slate-900">Sign in to continue</h2>
+    <p class="mt-1 text-sm text-slate-600">SaudaSakshi keeps your agreements under a simple user ID — a phone number or a handle. No password, this is a demo.</p>
+    <form id="signinForm" class="mt-4 grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end" autocomplete="off">
+      <div>
+        <label for="uid" class="block text-xs font-semibold text-slate-600 mb-1">Your user ID</label>
+        <input id="uid" name="uid" required maxlength="80" placeholder="e.g. 9876543210 or @anil"
+          class="w-full rounded-xl border border-slate-300 bg-slate-50/60 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 transition" />
+      </div>
+      <div>
+        <label for="uname" class="block text-xs font-semibold text-slate-600 mb-1">Display name <span class="font-normal text-slate-400">(optional)</span></label>
+        <input id="uname" name="uname" maxlength="80" placeholder="e.g. Anil"
+          class="w-full rounded-xl border border-slate-300 bg-slate-50/60 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 transition" />
+      </div>
+      <button type="submit" class="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition">Sign in</button>
+    </form>
+    <p id="signinError" class="hidden mt-2 text-xs text-rose-700">Enter a user ID to continue.</p>
+    <p class="mt-2 text-xs text-slate-500">Stored only in this browser (localStorage) and sent as <span class="font-mono">X-User-Id</span> with each request.</p>
+  </section>
+
+  <!-- Main app (only when signed in) -->
+  <div id="app" class="hidden">
+
+    <section class="card p-5 sm:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <label for="transcript" class="text-sm font-semibold text-slate-900">Paste the conversation transcript</label>
+        <div class="flex flex-wrap gap-2">
+          <button id="sample-house" class="text-xs font-medium rounded-lg border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50 transition">Sample: Hindi house painting</button>
+          <button id="sample-ca" class="text-xs font-medium rounded-lg border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50 transition">Sample: Hinglish CA deal</button>
+        </div>
+      </div>
+      <textarea id="transcript" rows="12" spellcheck="false"
+        class="w-full rounded-xl border border-slate-300 bg-slate-50/60 p-4 text-sm leading-relaxed text-slate-800 outline-none focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 transition resize-y"
+        placeholder="e.g.&#10;Painter: Sir, poora ghar paint kar denge.&#10;Owner: Kitne mein?&#10;Painter: 60,000 rupees, 10 din mein..."></textarea>
+
+      <div class="mt-4 grid sm:grid-cols-2 gap-3">
+        <div>
+          <p class="text-xs font-semibold text-slate-600 mb-1">My role</p>
+          <div class="inline-flex rounded-xl border border-slate-300 bg-white p-1 gap-1" role="group" aria-label="My role">
+            <button type="button" class="rolebtn rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold text-slate-700 transition" data-role="client" aria-pressed="true">I am the client</button>
+            <button type="button" class="rolebtn rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold text-slate-700 transition" data-role="provider" aria-pressed="false">I am the provider</button>
+          </div>
+        </div>
+        <div>
+          <label for="counterparty" class="block text-xs font-semibold text-slate-600 mb-1">Other party's user ID <span class="font-normal text-slate-400">(optional)</span></label>
+          <input id="counterparty" maxlength="80" placeholder="e.g. 9123456780"
+            class="w-full rounded-xl border border-slate-300 bg-slate-50/60 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5 transition" />
+        </div>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button id="create" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+          Create agreement
+        </button>
+        <span id="hint" class="text-xs text-slate-500">Text stays on the server only for this draft.</span>
+      </div>
+    </section>
+
+    <div id="status" class="hidden mt-6 card p-5">
+      <div class="flex items-center gap-3">
+        <svg class="spin h-5 w-5 text-slate-900" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+        <div>
+          <p class="text-sm font-semibold text-slate-900">Drafting agreement…</p>
+          <p id="status-sub" class="text-xs text-slate-500">Reading the transcript, extracting terms and checking what is missing.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="error" class="hidden mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"></div>
+
+    <!-- My agreements -->
+    <section id="listCard" class="card mt-6 p-5 sm:p-6">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500">My agreements</h2>
+        <button id="refresh" class="text-xs font-medium rounded-lg border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50 transition">Refresh</button>
+      </div>
+      <div id="listBody"><p class="text-sm text-slate-500">Loading…</p></div>
+    </section>
+
+    <main id="result" class="hidden mt-6 space-y-5"></main>
+  </div>
+
+  <footer class="mt-12 text-center text-xs text-slate-400">
+    SaudaSakshi · demo · escrow placeholders only, no money moves
+  </footer>
+</div>
+
+<script>
+const SAMPLES = {
+  house: `Painter (Ramesh): Namaste sir, main painting ka kaam karta hoon.
+Homeowner (Anil): Haan batao, poora ghar paint karna hai. 3BHK hai, Flat 302, Green Glen Layout, Bellandur, Bengaluru.
+Painter: Poora ghar, andar bahar se, 60,000 rupees mein kar denge. Material alag se aapka.
+Homeowner: Theek hai. Lekin kaam khatam hone par hi paisa milega, advance nahi.
+Painter: Chalega. 10 din mein poora ho jayega.
+Homeowner: Har room ki photo bhejna — kaam se pehle aur baad mein dono.
+Painter: Haan bhej dunga. Address wahi hona chahiye jo aapne diya hai.
+Homeowner: Haan. Kaam adhoora chhoda to paisa nahi milega.
+Painter: Theek hai sir, kal se shuru.`,
+  ca: `Client (Priya): Hi, mujhe FY25-26 ka ITR file karwana hai. CA ho na aap?
+CA (Mehta): Haan, main CA hoon. Salary income hai ya business bhi?
+Client: Sirf salary, ek hi employer. Form 16 hai mere paas.
+CA: Theek hai, 3,000 rupees mein file kar dunga.
+Client: Payment kab? Advance nahi dena, pehle acknowledgement chahiye.
+CA: Theek hai. ITR-V acknowledgement milne ke baad hi payment.
+Client: Aur agar notice aaya to?
+CA: Notice ka reply alag se charge hoga.
+Client: Theek hai, aap file kar do jaldi.`
+};
+
+const $ = (s) => document.querySelector(s);
+const transcriptEl = $('#transcript');
+const createBtn = $('#create');
+const statusEl = $('#status');
+const statusSub = $('#status-sub');
+const errorEl = $('#error');
+const resultEl = $('#result');
+const listBody = $('#listBody');
+const signinCard = $('#signinCard');
+const appEl = $('#app');
+const whoEl = $('#who');
+const whoName = $('#who-name');
+const counterpartyEl = $('#counterparty');
+
+/* ---------------------------------------------------------------- */
+/* Identity: a user ID in localStorage, sent as X-User-Id            */
+/* ---------------------------------------------------------------- */
+const LS_UID = 'saudasakshi.uid';
+const LS_NAME = 'saudasakshi.name';
+
+function currentUser() {
+  let uid = '';
+  let name = '';
+  try {
+    uid = localStorage.getItem(LS_UID) || '';
+    name = localStorage.getItem(LS_NAME) || '';
+  } catch { /* storage blocked */ }
+  return { uid: uid.trim(), name: name.trim() };
+}
+
+function setUser(uid, name) {
+  try {
+    localStorage.setItem(LS_UID, uid);
+    if (name) localStorage.setItem(LS_NAME, name);
+    else localStorage.removeItem(LS_NAME);
+  } catch { /* ignore */ }
+}
+
+function clearUser() {
+  try {
+    localStorage.removeItem(LS_UID);
+    localStorage.removeItem(LS_NAME);
+  } catch { /* ignore */ }
+}
+
+// Every API call carries the identity headers.
+function authHeaders(extra) {
+  const u = currentUser();
+  const h = Object.assign({}, extra || {});
+  if (u.uid) h['X-User-Id'] = u.uid;
+  if (u.name) h['X-User-Name'] = u.name;
+  return h;
+}
+
+const api = (path, opts = {}) =>
+  fetch(path, Object.assign({}, opts, {
+    headers: authHeaders(Object.assign({ cache: 'no-store' }, opts.headers || {})),
+    cache: 'no-store',
+  }));
+
+function paintIdentity() {
+  const u = currentUser();
+  const signedIn = !!u.uid;
+  signinCard.classList.toggle('hidden', signedIn);
+  appEl.classList.toggle('hidden', !signedIn);
+  whoEl.classList.toggle('hidden', !signedIn);
+  whoName.textContent = u.name ? `${u.name} (${u.uid})` : u.uid;
+}
+
+$('#signinForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const uid = $('#uid').value.trim();
+  const name = $('#uname').value.trim();
+  if (!uid) {
+    $('#signinError').classList.remove('hidden');
+    return;
+  }
+  $('#signinError').classList.add('hidden');
+  setUser(uid, name);
+  paintIdentity();
+  loadList();
+});
+
+$('#signout').addEventListener('click', () => {
+  clearUser();
+  resultEl.classList.add('hidden');
+  errorEl.classList.add('hidden');
+  listBody.innerHTML = '';
+  paintIdentity();
+  $('#uid').focus();
+});
+
+/* ---------------------------------------------------------------- */
+$('#sample-house').addEventListener('click', () => { transcriptEl.value = SAMPLES.house; transcriptEl.focus(); });
+$('#sample-ca').addEventListener('click', () => { transcriptEl.value = SAMPLES.ca; transcriptEl.focus(); });
+
+let myRole = 'client';
+document.querySelectorAll('.rolebtn').forEach((b) =>
+  b.addEventListener('click', () => {
+    myRole = b.dataset.role;
+    document.querySelectorAll('.rolebtn').forEach((x) =>
+      x.setAttribute('aria-pressed', String(x.dataset.role === myRole)));
+  }));
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (n) => (n === null || n === undefined || n === '' || isNaN(Number(n)))
+  ? '<span class="text-slate-400">not stated</span>'
+  : '₹' + Number(n).toLocaleString('en-IN');
+
+function showError(msg) {
+  errorEl.textContent = msg;
+  errorEl.classList.remove('hidden');
+}
+
+function badge(status) {
+  const map = {
+    drafted: ['bg-emerald-100 text-emerald-800 ring-emerald-200', 'Drafted'],
+    needs_info: ['bg-amber-100 text-amber-900 ring-amber-200', 'Needs info'],
+  };
+  const [cls, label] = map[status] || ['bg-slate-100 text-slate-700 ring-slate-200', status || 'unknown'];
+  return `<span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ${cls}">${esc(label)}</span>`;
+}
+
+function statusPill(status) {
+  const map = {
+    accepted: ['bg-emerald-100 text-emerald-800 ring-emerald-200', 'Accepted'],
+    done: ['bg-slate-900 text-white ring-slate-900', 'Drafted'],
+    pending: ['bg-amber-100 text-amber-900 ring-amber-200', 'Drafting'],
+  };
+  const [cls, label] = map[status] || ['bg-slate-100 text-slate-700 ring-slate-200', status || 'unknown'];
+  return `<span class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${cls}">${esc(label)}</span>`;
+}
+
+function section(title, inner, extra = '') {
+  return `<section class="card p-5 fade">
+    <div class="flex items-baseline justify-between gap-3 mb-3">
+      <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500">${esc(title)}</h2>${extra}
+    </div>${inner}
+  </section>`;
+}
+
+function listOrDash(items) {
+  if (!items || !items.length) return '<p class="text-sm text-slate-400">not stated</p>';
+  return `<ul class="space-y-2">${items.map((i) =>
+    `<li class="flex gap-2.5 text-sm text-slate-700"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-900"></span><span>${esc(i)}</span></li>`
+  ).join('')}</ul>`;
+}
+
+const fmtDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? String(iso) : d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+/* ---------------------------------------------------------------- */
+/* My agreements list                                                */
+/* ---------------------------------------------------------------- */
+function renderList(data) {
+  const rows = (data && data.agreements) || [];
+  if (!rows.length) {
+    listBody.innerHTML = `<p class="text-sm text-slate-500">No agreements yet. Draft one above — it will show up here.</p>`;
+    return;
+  }
+  listBody.innerHTML = `<div class="space-y-2">${rows.map((r) => {
+    const p = r.parties || {};
+    const label = p.provider_name || p.client_name
+      ? `${esc(p.provider_name || 'Provider')} ↔ ${esc(p.client_name || 'Client')}`
+      : esc(p.creator_name || 'Untitled deal');
+    const mine = r.parties && r.parties.client_uid === currentUser().uid ? 'client'
+      : (r.parties && r.parties.provider_uid === currentUser().uid ? 'provider' : (r.creator_role || ''));
+    return `<button type="button" class="rowlink w-full text-left rounded-xl border border-slate-200 p-3.5 transition bg-white" data-open="${esc(r.id)}">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-sm font-semibold text-slate-900">${label}</span>
+        <span class="flex items-center gap-2">
+          ${r.work_type ? `<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">${esc(r.work_type)}</span>` : ''}
+          ${statusPill(r.status)}
+        </span>
+      </div>
+      <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+        <span class="font-semibold text-slate-700">${money(r.price_inr)}</span>
+        ${mine ? `<span>you are the ${esc(mine)}</span>` : ''}
+        ${r.created_at ? `<span>· ${esc(fmtDate(r.created_at))}</span>` : ''}
+        <span class="font-mono text-[10px] text-slate-400">${esc(r.id)}</span>
+      </div>
+    </button>`;
+  }).join('')}</div>`;
+
+  listBody.querySelectorAll('[data-open]').forEach((btn) =>
+    btn.addEventListener('click', () => openAgreement(btn.dataset.open)));
+}
+
+async function loadList() {
+  if (!currentUser().uid) return;
+  try {
+    const res = await api('/agreements');
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      listBody.innerHTML = `<p class="text-sm text-rose-700">Could not load your agreements (HTTP ${res.status}${body.error ? ': ' + esc(body.error) : ''}).</p>`;
+      return;
+    }
+    renderList(await res.json());
+  } catch (err) {
+    listBody.innerHTML = `<p class="text-sm text-rose-700">Could not load your agreements: ${esc(err.message || 'network error')}.</p>`;
+  }
+}
+
+async function openAgreement(id) {
+  errorEl.classList.add('hidden');
+  try {
+    const res = await api('/agreements/' + encodeURIComponent(id));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('Could not open agreement (HTTP ' + res.status + ')'));
+    render(data);
+  } catch (err) {
+    showError(err.message || 'Something went wrong.');
+  }
+}
+
+$('#refresh').addEventListener('click', () => { loadList(); });
+
+/* ---------------------------------------------------------------- */
+/* Agreement detail                                                  */
+/* ---------------------------------------------------------------- */
+function acceptBlock(data) {
+  const mine = data.my_role;
+  const accepted = mine === 'client' ? data.accepted_by_client : data.accepted_by_provider;
+  const both = !!(data.accepted_by_client && data.accepted_by_provider);
+  const who = `Signed in as <span class="font-mono">${esc(currentUser().uid)}</span>`;
+  if (both) {
+    return `<div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+      <p class="font-semibold">Both parties accepted — this deal is agreed.</p>
+      <p class="mt-1 text-xs text-emerald-700">${who} · client and provider both signed off.</p>
+    </div>`;
+  }
+  if (!mine) {
+    return `<p class="text-sm text-slate-500">You are not a party to this agreement.</p>`;
+  }
+  return `<div class="rounded-xl border border-slate-200 p-4">
+    <p class="text-xs text-slate-500">${who} · you are the <span class="font-semibold text-slate-800">${esc(mine)}</span></p>
+    <div class="mt-2 flex flex-wrap items-center gap-3">
+      ${accepted
+        ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">You accepted</span>
+           <span class="text-xs text-slate-500">Waiting for the ${esc(mine === 'client' ? 'provider' : 'client')} to accept.</span>`
+        : `<button id="accept" class="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition">Accept as ${esc(mine)}</button>
+           <span class="text-xs text-slate-500">Accepting records your sign-off. The deal is agreed when both sides accept.</span>`}
+    </div>
+  </div>`;
+}
+
+function render(data) {
+  const a = data.agreement || {};
+  const writer = data.writer || a.writer || 'unknown';
+  const escrow = a.escrow || {};
+  const price = a.price_inr;
+  const escAmt = (escrow.amount_inr ?? price);
+  const p = (a.parties && a.parties.provider) || {};
+  const c = (a.parties && a.parties.client) || {};
+  const missing = a.missing_terms || [];
+  const text = a.agreement_text || {};
+  const currentId = data.id;
+
+  resultEl.innerHTML = `
+    ${section('Agreement', `
+      <div class="flex flex-wrap items-center gap-3">
+        ${badge(a.status)}
+        ${data.status === 'accepted' ? '<span class="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">Accepted by both</span>' : ''}
+        <span class="text-xs text-slate-500">writer: <span class="font-mono font-semibold text-slate-700">${esc(writer)}</span></span>
+        ${a.work_type ? `<span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${esc(a.work_type)}</span>` : ''}
+        ${a.language ? `<span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${esc(a.language)}</span>` : ''}
+      </div>
+      <p class="mt-3 font-mono text-[11px] text-slate-400">id: ${esc(currentId)}</p>
+    `)}
+
+    ${section('Accept', acceptBlock(data))}
+
+    ${section('Parties', `
+      <div class="grid sm:grid-cols-2 gap-3">
+        ${[['Provider', p, data.parties && data.parties.provider_uid], ['Client', c, data.parties && data.parties.client_uid]].map(([label, who, uid]) => `
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">${label}</p>
+            <p class="mt-1 text-base font-semibold text-slate-900">${esc(who.name || 'Not named')}</p>
+            <p class="text-sm text-slate-500">${esc(who.role || '')}</p>
+            <p class="mt-1 font-mono text-[11px] text-slate-400">${uid ? esc(uid) : 'no user ID on this agreement'}</p>
+          </div>`).join('')}
+      </div>
+    `)}
+
+    ${section('Scope of work', listOrDash(a.scope))}
+
+    ${section('Price & escrow', `
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div class="rounded-xl border border-slate-200 p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Agreed price</p>
+          <p class="mt-1 text-2xl font-semibold text-slate-900">${money(price)}</p>
+        </div>
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Escrow</p>
+          <p class="mt-1 text-base font-semibold text-emerald-900">${money(escAmt)} held in escrow, released when ${escrow.release_condition ? esc(escrow.release_condition) : '<span class="font-normal">the release condition is confirmed</span>'}</p>
+          <p class="mt-1 text-xs text-emerald-700">No advance is paid to the provider.</p>
+        </div>
+      </div>
+      ${a.refund_rule ? `<p class="mt-3 text-sm text-slate-600"><span class="font-semibold text-slate-800">Refund:</span> ${esc(a.refund_rule)}</p>` : ''}
+    `)}
+
+    ${section('Terms', `
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div class="rounded-xl border border-slate-200 p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Deadline</p>
+          <p class="mt-1 text-sm font-medium ${a.deadline ? 'text-slate-900' : 'text-rose-600'}">${esc(a.deadline || 'Not stated in the transcript')}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Location</p>
+          <p class="mt-1 text-sm font-medium ${a.location ? 'text-slate-900' : 'text-slate-400'}">${esc(a.location || 'Not stated')}</p>
+        </div>
+      </div>
+      ${a.if_late_or_disputed ? `<p class="mt-3 text-sm text-slate-600"><span class="font-semibold text-slate-800">If late or disputed:</span> ${esc(a.if_late_or_disputed)}</p>` : ''}
+    `)}
+
+    ${section('Proof required', listOrDash(a.proof_required))}
+
+    ${section('Verification checks', listOrDash(a.verification_checks))}
+
+    ${section('Missing terms', missing.length ? `
+      <div class="space-y-2.5">
+        ${missing.map((m) => `
+          <div class="rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <p class="text-[11px] font-bold uppercase tracking-wider text-amber-700">${esc(m.term)}</p>
+            <p class="mt-1 text-sm text-amber-900"><span class="font-semibold">Ask:</span> ${esc(m.question)}</p>
+          </div>`).join('')}
+      </div>` : '<p class="text-sm text-slate-500">Nothing missing — every material term was stated in the transcript.</p>',
+      `<span class="rounded-full ${missing.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'} px-2.5 py-1 text-xs font-semibold">${missing.length} open</span>`)}
+
+    ${section('Agreement text', `
+      <div class="flex gap-2 mb-3" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="en" class="tabbtn rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold transition">English</button>
+        <button role="tab" aria-selected="false" data-tab="local" class="tabbtn rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold transition">Local language</button>
+      </div>
+      <pre class="agree text-sm text-slate-700" id="agree-text"></pre>
+    `)}
+
+    ${section('Why', `
+      <details class="group">
+        <summary class="flex items-center justify-between text-sm font-semibold text-slate-800">
+          <span>Show reasoning (${(a.reasoning || []).length} notes)</span>
+          <span class="text-slate-400 group-open:rotate-180 transition">▾</span>
+        </summary>
+        <div class="mt-3">${listOrDash(a.reasoning)}</div>
+      </details>
+    `)}
+  `;
+
+  const texts = { en: text.en || 'Not generated.', local: text.local || 'Not generated.' };
+  const pre = $('#agree-text');
+  const showTab = (key) => {
+    pre.textContent = texts[key];
+    document.querySelectorAll('.tabbtn').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.tab === key)));
+  };
+  document.querySelectorAll('.tabbtn').forEach((b) =>
+    b.addEventListener('click', () => showTab(b.dataset.tab)));
+  showTab('en');
+
+  const acceptBtn = $('#accept');
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', async () => {
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Accepting…';
+      try {
+        const res = await api(`/agreements/${encodeURIComponent(currentId)}/accept`, { method: 'POST' });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.error || ('Could not accept (HTTP ' + res.status + ')'));
+        await openAgreement(currentId);
+        loadList();
+      } catch (err) {
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = 'Accept';
+        showError(err.message || 'Could not accept.');
+      }
+    });
+  }
+
+  resultEl.classList.remove('hidden');
+  resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function stopStatus() {
+  statusEl.classList.add('hidden');
+  createBtn.disabled = false;
+  createBtn.textContent = 'Create agreement';
+}
+
+async function poll(id) {
+  const started = Date.now();
+  const THREE_MIN = 180000;
+  while (Date.now() - started < THREE_MIN) {
+    await new Promise((r) => setTimeout(r, 2000));
+    let res;
+    try {
+      res = await api('/agreements/' + encodeURIComponent(id));
+    } catch {
+      continue;
+    }
+    if (!res.ok) continue;
+    const data = await res.json();
+    if ((data.status === 'done' || data.status === 'accepted') && data.agreement) return data;
+    statusSub.textContent = `Still drafting… (${Math.round((Date.now() - started) / 1000)}s) · writer: ${data.writer || 'pending'}`;
+  }
+  throw new Error('Timed out after 3 minutes. The draft may still complete — reload and check the id.');
+}
+
+createBtn.addEventListener('click', async () => {
+  const transcript = transcriptEl.value.trim();
+  errorEl.classList.add('hidden');
+  resultEl.classList.add('hidden');
+  if (!currentUser().uid) {
+    showError('Sign in with a user ID first.');
+    return;
+  }
+  if (transcript.length < 10) {
+    showError('Paste a transcript first (at least a few lines).');
+    return;
+  }
+  createBtn.disabled = true;
+  createBtn.textContent = 'Working…';
+  statusEl.classList.remove('hidden');
+  statusSub.textContent = 'Reading the transcript, extracting terms and checking what is missing.';
+
+  const payload = { transcript, my_role: myRole };
+  const cp = counterpartyEl.value.trim();
+  if (cp) payload.counterparty_uid = cp;
+
+  try {
+    const res = await api('/agreements', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const created = await res.json().catch(() => ({}));
+    if (!res.ok || !created.id) {
+      throw new Error(created.error || ('Could not create agreement (HTTP ' + res.status + ')'));
+    }
+    const data = await poll(created.id);
+    stopStatus();
+    render(data);
+    loadList();
+  } catch (err) {
+    stopStatus();
+    showError(err.message || 'Something went wrong.');
+  }
+});
+
+paintIdentity();
+if (currentUser().uid) loadList();
+</script>
+</body>
+</html>

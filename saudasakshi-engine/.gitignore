@@ -1,0 +1,4 @@
+node_modules/
+deploy.zip
+.env
+*.log
