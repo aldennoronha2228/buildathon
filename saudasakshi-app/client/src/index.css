@@ -13,10 +13,27 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  html.theme-light-page,
+  body.theme-light-page {
+    background-color: #ffffff;
+    color: #09090b;
+    color-scheme: light;
+  }
+
   input[type='date'],
   input[type='time'] {
     color-scheme: dark;
   }
+}
+
+/* The interface is intentionally monochrome. Invert its surfaces and text together
+   so the existing black/white palette stays consistent in either theme. */
+.app-theme {
+  transition: filter 180ms ease;
+}
+
+.app-theme-light {
+  filter: invert(1) grayscale(1);
 }
 
 /* Concentric pulse rings for active microphone */

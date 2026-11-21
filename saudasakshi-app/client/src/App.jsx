@@ -27,7 +27,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { setView, bootError, alarmsModalOpen } = useApp();
+  const { setView, bootError, alarmsModalOpen, theme } = useApp();
   const location = useLocation();
 
   // Mirror the current route into the store so the sidebar can highlight the active view
@@ -45,8 +45,17 @@ function Shell() {
     };
   }, [alarmsModalOpen]);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('theme-light-page', theme === 'light');
+    document.body.classList.toggle('theme-light-page', theme === 'light');
+    return () => {
+      document.documentElement.classList.remove('theme-light-page');
+      document.body.classList.remove('theme-light-page');
+    };
+  }, [theme]);
+
   return (
-    <div className="relative max-w-md mx-auto min-h-screen flex flex-col bg-[#09090B] sm:border-x sm:border-[#27272A] shadow-2xl overflow-hidden">
+    <div className={`app-theme relative max-w-md mx-auto min-h-screen flex flex-col bg-[#09090B] sm:border-x sm:border-[#27272A] shadow-2xl overflow-hidden ${theme === 'light' ? 'app-theme-light' : ''}`}>
       <Sidebar />
       <Header />
       <AlarmBanner />

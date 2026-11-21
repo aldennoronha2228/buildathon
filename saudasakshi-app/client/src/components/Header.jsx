@@ -2,7 +2,7 @@ import { useApp } from '../state/store.jsx';
 import { scenarioFor } from '../lib/scenarios.js';
 
 export default function Header() {
-  const { setSidebarOpen, setAlarmsModalOpen, alarms, lastDetected, view } = useApp();
+  const { setSidebarOpen, setAlarmsModalOpen, alarms, lastDetected, view, theme, toggleTheme } = useApp();
   const showProgress = view === 'workflow';
   const activeAlarms = alarms.activeCount;
 
@@ -28,6 +28,23 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-full bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-white transition-colors focus:outline-none"
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z" />
+              </svg>
+            )}
+          </button>
           <button
             onClick={() => setAlarmsModalOpen(true)}
             className="relative p-2 rounded-full bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-white transition-colors focus:outline-none"
