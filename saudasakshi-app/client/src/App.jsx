@@ -10,20 +10,24 @@ import AlarmsModal from './components/AlarmsModal.jsx';
 import Workflow from './screens/Workflow.jsx';
 import HistoryView from './screens/HistoryView.jsx';
 import SettingsView from './screens/SettingsView.jsx';
+import LandingPage from './screens/LandingPage.jsx';
 
 export default function App() {
   return (
-    <AppProvider>
-      <Routes>
-        <Route element={<Shell />}>
-          <Route path="/" element={<Workflow />} />
-          <Route path="/history" element={<HistoryView />} />
-          <Route path="/settings" element={<SettingsView />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </AppProvider>
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route element={<AppShell />}>
+        <Route path="/app" element={<Workflow />} />
+        <Route path="/history" element={<HistoryView />} />
+        <Route path="/settings" element={<SettingsView />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
   );
+}
+
+function AppShell() {
+  return <AppProvider><Shell /></AppProvider>;
 }
 
 function Shell() {

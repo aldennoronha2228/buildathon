@@ -11,7 +11,7 @@ export default function Sidebar() {
   const activeAlarms = alarms.alarms.filter((a) => a.alarmEnabled).length;
 
   const nav = [
-    { key: 'workflow', label: 'New Agreement', to: '/', icon: MicIcon },
+    { key: 'workflow', label: 'New Agreement', to: '/app', icon: MicIcon },
     { key: 'history', label: 'Agreement History', to: '/history', icon: HistoryIcon, badge: agreements.length },
     { key: 'alarms', label: 'Payment Alarms', to: null, icon: BellIcon, badge: activeAlarms, action: () => { setSidebarOpen(false); setAlarmsModalOpen(true); } },
     { key: 'settings', label: 'Account & Settings', to: '/settings', icon: GearIcon },
