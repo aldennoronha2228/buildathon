@@ -176,29 +176,11 @@ const counterpartyEl = $('#counterparty');
 const LS_UID = 'saudasakshi.uid';
 const LS_NAME = 'saudasakshi.name';
 
-function currentUser() {
-  let uid = '';
-  let name = '';
-  try {
-    uid = ''; // always ask for the user ID on every visit
-    name = '';
-  } catch { /* storage blocked */ }
-  return { uid: uid.trim(), name: name.trim() };
-}
-
-function setUser(uid, name) {
-  try {
-    
-    
-  } catch { /* ignore */ }
-}
-
-function clearUser() {
-  try {
-    localStorage.removeItem(LS_UID);
-    localStorage.removeItem(LS_NAME);
-  } catch { /* ignore */ }
-}
+// Kept in memory only, so the page asks for the user ID on every visit.
+let SESSION_USER = { uid: '', name: '' };
+function currentUser() { return { uid: SESSION_USER.uid.trim(), name: SESSION_USER.name.trim() }; }
+function setUser(uid, name) { SESSION_USER = { uid: uid || '', name: name || '' }; }
+function clearUser() { SESSION_USER = { uid: '', name: '' }; }
 
 // Every API call carries the identity headers.
 function authHeaders(extra) {
