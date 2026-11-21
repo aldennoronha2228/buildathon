@@ -4,7 +4,7 @@ import { formatINR, formatShortDate, formatTime12h } from '../lib/format.js';
 import { scenarioFor } from '../lib/scenarios.js';
 
 export default function ConfirmStep() {
-  const { draft, cardLang, setCardLang, editTerms, confirmParty, proceedToPayment, pushToast } = useApp();
+  const { draft, profile, cardLang, setCardLang, editTerms, confirmParty, proceedToPayment, pushToast } = useApp();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
@@ -101,6 +101,23 @@ export default function ConfirmStep() {
             <span>{editing ? 'Editing...' : 'Edit Terms'}</span>
           </button>
         </div>
+
+        {/* Parties */}
+        <section className="bg-[#121215] border border-[#27272A] rounded-2xl p-5 space-y-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA]">Parties</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <PartyCard
+              label="Provider"
+              name={profile?.name || profile?.business || 'You'}
+              role="Service Provider"
+            />
+            <PartyCard
+              label="Client"
+              name={draft.customerName || 'Customer'}
+              role="Client"
+            />
+          </div>
+        </section>
 
         {/* Agreement card */}
         <div className="bg-[#121215] border border-[#27272A] rounded-2xl p-5 space-y-5">
@@ -244,6 +261,16 @@ export default function ConfirmStep() {
           </svg>
         </button>
       </div>
+    </div>
+  );
+}
+
+function PartyCard({ label, name, role }) {
+  return (
+    <div className="rounded-xl border border-[#3F3F46] bg-[#09090B] p-4">
+      <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA]">{label}</span>
+      <p className="mt-1 text-base font-semibold text-white">{name}</p>
+      <p className="text-sm text-[#A1A1AA]">{role}</p>
     </div>
   );
 }

@@ -14,6 +14,13 @@ let toastSeq = 0;
 
 export function AppProvider({ children }) {
   const [profile, setProfile] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('saudasakshi-theme') === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const [agreements, setAgreements] = useState([]);
   const [alarms, setAlarms] = useState({ alarms: [], activeCount: 0, dueToday: [] });
 
@@ -37,6 +44,14 @@ export function AppProvider({ children }) {
   const [capabilities, setCapabilities] = useState({ sarvamStt: false, sarvamLlm: false, cashfree: false });
 
   const draft = useMemo(() => agreements.find((a) => a.id === draftId) || null, [agreements, draftId]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('saudasakshi-theme', next); } catch { /* storage may be unavailable */ }
+      return next;
+    });
+  }, []);
 
   /* ------------------------------ toasts ------------------------------ */
 
@@ -266,6 +281,8 @@ export function AppProvider({ children }) {
     bannerAgreement,
     detailAgreement,
     capabilities,
+    theme,
+    toggleTheme,
     // workflow
     step,
     unlocked,
