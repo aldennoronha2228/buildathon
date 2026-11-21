@@ -618,6 +618,11 @@ async function acceptAgreement(id, event) {
   if (!item) return json(404, { error: "not found" });
   if (!canRead(item, caller.uid)) return json(403, { error: "not a party to this agreement" });
 
+  const st = item.status?.S;
+  if (st !== "done" && st !== "accepted") {
+    return json(409, { error: "agreement is still being drafted; accept once it is ready" });
+  }
+
   const isClient = item.client_uid?.S === caller.uid;
   const isProvider = item.provider_uid?.S === caller.uid;
   if (!isClient && !isProvider) {

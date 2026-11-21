@@ -64,7 +64,7 @@
       <button type="submit" class="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition">Sign in</button>
     </form>
     <p id="signinError" class="hidden mt-2 text-xs text-rose-700">Enter a user ID to continue.</p>
-    <p class="mt-2 text-xs text-slate-500">Stored only in this browser (localStorage) and sent as <span class="font-mono">X-User-Id</span> with each request.</p>
+    <p class="mt-2 text-xs text-slate-500">Asked on every visit (not saved) and sent as <span class="font-mono">X-User-Id</span> with each request.</p>
   </section>
 
   <!-- Main app (only when signed in) -->
@@ -180,17 +180,16 @@ function currentUser() {
   let uid = '';
   let name = '';
   try {
-    uid = localStorage.getItem(LS_UID) || '';
-    name = localStorage.getItem(LS_NAME) || '';
+    uid = ''; // always ask for the user ID on every visit
+    name = '';
   } catch { /* storage blocked */ }
   return { uid: uid.trim(), name: name.trim() };
 }
 
 function setUser(uid, name) {
   try {
-    localStorage.setItem(LS_UID, uid);
-    if (name) localStorage.setItem(LS_NAME, name);
-    else localStorage.removeItem(LS_NAME);
+    
+    
   } catch { /* ignore */ }
 }
 
