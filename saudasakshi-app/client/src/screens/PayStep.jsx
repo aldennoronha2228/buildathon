@@ -14,7 +14,6 @@ export default function PayStep() {
     toggleAlarm,
     updateAlarmSchedule,
     saveAndReset,
-    setBannerId,
     pushToast,
     capabilities,
   } = useApp();
@@ -215,7 +214,7 @@ export default function PayStep() {
                 <label className="block text-[10px] font-medium text-[#A1A1AA] mb-1">Next Payment Date</label>
                 <input
                   type="date"
-                  value={draft.dueDate}
+                  value={draft.dueDate || ''}
                   onChange={(e) =>
                     e.target.value &&
                     updateAlarmSchedule(draft.id, e.target.value, draft.reminderTime).then(() =>
@@ -244,15 +243,11 @@ export default function PayStep() {
             <div className="flex items-center justify-between pt-1">
               <span className={`text-[11px] font-medium ${draft.alarmEnabled ? 'text-white' : 'text-[#A1A1AA]'}`}>
                 {draft.alarmEnabled
-                  ? `Alarm set for ${formatShortDate(draft.dueDate, { withYear: true })}, ${formatTime12h(draft.reminderTime)}`
+                  ? draft.dueDate
+                    ? `Alarm set for ${formatShortDate(draft.dueDate, { withYear: true })}, ${formatTime12h(draft.reminderTime)}`
+                    : 'Set a due date to enable the balance alarm'
                   : 'Alarm paused'}
               </span>
-              <button
-                onClick={() => setBannerId(draft.id)}
-                className="px-2.5 py-1 rounded-lg bg-[#09090B] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-white transition-colors"
-              >
-                Test Alarm
-              </button>
             </div>
           </div>
         )}
@@ -265,7 +260,7 @@ export default function PayStep() {
                 Cashfree Gateway • {isBalanceStage ? 'Final Balance' : 'Advance'}
               </span>
               <span className="px-2 py-0.5 rounded-md bg-[#09090B] border border-[#27272A] text-[10px] font-mono text-zinc-300">
-                UPI / Card / NetBanking
+                Hosted Cashfree checkout
               </span>
             </div>
 

@@ -48,7 +48,11 @@ export function AppProvider({ children }) {
   const toggleTheme = useCallback(() => {
     setTheme((current) => {
       const next = current === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem('saudasakshi-theme', next); } catch { /* storage may be unavailable */ }
+      try {
+        localStorage.setItem('saudasakshi-theme', next);
+      } catch {
+        // The selected theme still applies when storage is unavailable.
+      }
       return next;
     });
   }, []);

@@ -1,3 +1,4 @@
+import './config/env.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,8 +22,9 @@ app.post(
   (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
     const signature = req.headers['x-webhook-signature'];
+    const timestamp = req.headers['x-webhook-timestamp'];
 
-    if (!verifyWebhookSignature(raw.toString('utf8'), signature)) {
+    if (!verifyWebhookSignature(raw, signature, timestamp)) {
       // Not verified — reject so it can't be spoofed. Cashfree will not retry 4xx for bad signature, which is fine.
       return res.status(401).json({ error: 'Invalid webhook signature' });
     }
@@ -77,7 +79,7 @@ const port = Number(process.env.PORT) || 8080;
 app.listen(port, () => {
   const caps = [
     `sarvam-stt:${process.env.SARVAM_API_KEY ? 'live' : 'unavailable'}`,
-    `sarvam-llm:${process.env.SARVAM_API_KEY ? 'live' : 'regex'}`,
+    `sarvam-llm:${process.env.SARVAM_API_KEY ? 'configured' : 'unavailable'}`,
     `cashfree:${process.env.CASHFREE_APP_ID ? 'live' : 'unavailable'}`,
   ];
   console.log(`SaudaSakshi server running on http://localhost:${port} [${caps.join(', ')}]`);

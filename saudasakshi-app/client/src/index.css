@@ -26,8 +26,7 @@
   }
 }
 
-/* The interface is intentionally monochrome. Invert its surfaces and text together
-   so the existing black/white palette stays consistent in either theme. */
+/* Keep the monochrome palette consistent when the light theme is selected. */
 .app-theme {
   transition: filter 180ms ease;
 }

@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/store.jsx';
-import Toggle from '../components/Toggle.jsx';
 
 const EMPTY = {
   name: '',
   business: '',
   phone: '',
   city: '',
-  upi: '',
-  autoReceipt: true,
-  autoDetectVoice: true,
-  alwaysBilingual: true,
 };
 
 export default function SettingsView() {
@@ -42,7 +37,7 @@ export default function SettingsView() {
       <div className="space-y-6 pb-8">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">Account &amp; Settings</h1>
-          <p className="text-xs text-[#A1A1AA] mt-1">Manage your business profile, settlements, and voice preferences.</p>
+          <p className="text-xs text-[#A1A1AA] mt-1">Manage your business profile and check server integrations.</p>
         </div>
 
         {/* Business profile */}
@@ -60,31 +55,16 @@ export default function SettingsView() {
           </div>
         </div>
 
-        {/* Settlements */}
+        {/* Cashfree connection */}
         <div className="bg-[#121215] border border-[#27272A] rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Cashfree Settlements</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${capabilities?.cashfree ? 'bg-white/10 border-white/25 text-white' : 'border-[#3F3F46] text-zinc-400'}`}>
-              {capabilities?.cashfree ? 'GATEWAY LIVE' : 'NOT CONNECTED'}
+              {capabilities?.cashfree ? 'CONNECTED' : 'NOT CONNECTED'}
             </span>
           </div>
 
-          <Field label="Connected UPI ID" value={form.upi} onChange={set('upi')} mono />
-
-          <div className="flex items-center justify-between bg-[#09090B] border border-[#27272A] rounded-xl px-3.5 py-3">
-            <div>
-              <div className="text-xs font-medium text-white">Settlement Bank Account</div>
-              <div className="text-[11px] font-mono text-[#A1A1AA] mt-0.5">No bank account connected</div>
-            </div>
-            <span className="text-[11px] font-medium text-white">Primary</span>
-          </div>
-
-          <SettingToggle
-            title="Auto-send Payment Receipt"
-            desc="Share verified receipt upon Cashfree confirmation"
-            checked={form.autoReceipt}
-            onChange={(v) => setForm({ ...form, autoReceipt: v })}
-          />
+          <p className="text-[11px] leading-relaxed text-[#A1A1AA]">Cashfree credentials are read from server environment variables. No payment links or payment status are simulated when it is disconnected.</p>
         </div>
 
         {/* Voice settings */}
@@ -92,16 +72,13 @@ export default function SettingsView() {
           <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Voice AI</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${capabilities?.sarvamStt ? 'bg-white/10 border-white/25 text-white' : 'border-[#3F3F46] text-zinc-400'}`}>
-              {capabilities?.sarvamStt ? 'Sarvam STT LIVE' : 'NOT CONNECTED'}
+              {capabilities?.sarvamStt ? 'CONNECTED' : 'NOT CONNECTED'}
             </span>
           </div>
-
-          <SettingToggle
-            title="Auto-Detect Language"
-            desc="Automatically detects Kannada, Hindi, Tamil, English & code-mixed speech"
-            checked={form.autoDetectVoice}
-            onChange={(v) => setForm({ ...form, autoDetectVoice: v })}
-          />
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[#A1A1AA]">Sarvam LLM term extraction</span>
+            <span className={capabilities?.sarvamLlm ? 'text-white' : 'text-zinc-500'}>{capabilities?.sarvamLlm ? 'CONNECTED' : 'NOT CONNECTED'}</span>
+          </div>
 
           <div className="bg-[#09090B] border border-[#27272A] rounded-xl p-3">
             <span className="block text-[10px] font-medium uppercase tracking-wider text-[#A1A1AA] mb-2">
@@ -119,12 +96,6 @@ export default function SettingsView() {
             </div>
           </div>
 
-          <SettingToggle
-            title="Bilingual Agreement Output"
-            desc="Display detected regional language + English summary together"
-            checked={form.alwaysBilingual}
-            onChange={(v) => setForm({ ...form, alwaysBilingual: v })}
-          />
         </div>
 
         {/* Save + reset */}
@@ -140,7 +111,6 @@ export default function SettingsView() {
     </div>
   );
 }
-
 function Field({ label, value, onChange, mono = false, small = false }) {
   return (
     <div>
@@ -152,18 +122,6 @@ function Field({ label, value, onChange, mono = false, small = false }) {
           mono ? 'font-mono' : ''
         } ${small ? 'px-3 py-2.5 text-xs' : 'px-3.5 py-2.5 text-sm'}`}
       />
-    </div>
-  );
-}
-
-function SettingToggle({ title, desc, checked, onChange }) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="pr-3">
-        <div className="text-xs font-medium text-white">{title}</div>
-        <div className="text-[11px] text-[#A1A1AA] mt-0.5">{desc}</div>
-      </div>
-      <Toggle checked={checked} onChange={onChange} label={title} />
     </div>
   );
 }

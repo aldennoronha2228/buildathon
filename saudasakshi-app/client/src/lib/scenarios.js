@@ -56,5 +56,5 @@ const SCENARIOS = {
 };
 
 export function scenarioFor(code) {
-  return SCENARIOS[code] || SCENARIOS.kn;
+  return SCENARIOS[code] || SCENARIOS.en;
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { buildCondition, parseAmounts, detectLanguage } from './lib/parse.js';
+import { buildCondition, detectLanguage } from './lib/parse.js';
 import { extractAgreement } from './services/sarvam.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +17,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS agreements (
     id TEXT PRIMARY KEY,
     seq INTEGER UNIQUE,
-    customer_name TEXT NOT NULL DEFAULT 'Walk-in Customer',
+    customer_name TEXT NOT NULL DEFAULT '',
+    customer_phone TEXT NOT NULL DEFAULT '',
     service TEXT NOT NULL,
     service_regional TEXT NOT NULL,
     language TEXT NOT NULL,
@@ -67,29 +68,29 @@ try {
 } catch {
   /* column already exists */
 }
+try {
+  db.exec("ALTER TABLE agreements ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''");
+} catch {
+  /* column already exists */
+}
 
 /* ------------------------------ helpers ------------------------------ */
 
 const now = () => new Date().toISOString();
 
 function nextSeq() {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'next_seq'").get();
-  const seq = row ? Number(row.value) : 8505;
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('next_seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-  ).run(String(seq + 1));
-  return seq;
+  return Number(db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM agreements').get().seq);
 }
 
 function insertAgreement(a) {
   db.prepare(`
     INSERT INTO agreements (
-      id, seq, customer_name, service, service_regional, language, lang_code,
+      id, seq, customer_name, customer_phone, service, service_regional, language, lang_code,
       total, advance, balance, status, condition_text, due_date, reminder_time,
       alarm_enabled, link_id, contractor_confirmed_at, customer_confirmed_at,
       created_at, updated_at
     ) VALUES (
-      @id, @seq, @customer_name, @service, @service_regional, @language, @lang_code,
+      @id, @seq, @customer_name, @customer_phone, @service, @service_regional, @language, @lang_code,
       @total, @advance, @balance, @status, @condition_text, @due_date, @reminder_time,
       @alarm_enabled, @link_id, @contractor_confirmed_at, @customer_confirmed_at,
       @created_at, @updated_at
@@ -102,6 +103,7 @@ function rowToAgreement(row) {
   return {
     id: row.id,
     customerName: row.customer_name,
+    customerPhone: row.customer_phone || '',
     service: row.service,
     serviceRegional: row.service_regional,
     language: row.language,
@@ -111,10 +113,10 @@ function rowToAgreement(row) {
     balance: row.balance,
     status: row.status,
     condition: row.condition_text,
-    dueDate: row.due_date,
+    dueDate: row.due_date || null,
     reminderTime: row.reminder_time,
     alarmEnabled: !!row.alarm_enabled,
-    cashfreeLinkId: row.link_id || `cf_link_sauda_${row.seq}`,
+    cashfreeLinkId: row.link_id || null,
     confirmations: {
       contractor: { confirmed: !!row.contractor_confirmed_at, at: row.contractor_confirmed_at },
       customer: { confirmed: !!row.customer_confirmed_at, at: row.customer_confirmed_at },
@@ -137,29 +139,28 @@ export function getAgreement(id) {
   return rowToAgreement(db.prepare('SELECT * FROM agreements WHERE id = ?').get(id));
 }
 
-export async function createAgreement({ transcript, service, serviceRegional, customerName }) {
+export async function createAgreement({ transcript, service, serviceRegional, customerName, customerPhone }) {
   const text = String(transcript || '').trim();
   if (text.length < 5) throw Object.assign(new Error('Transcript is too short'), { status: 400 });
 
-  // Prefer Sarvam LLM extraction when configured; fall back to the deterministic parser.
   const extracted = await extractAgreement(text);
-  const amounts = extracted || parseAmountsSafe(text);
   const langCode = detectLanguage(text);
   const language = langLabel(langCode);
-  const total = amounts.total;
-  const advance = amounts.advance;
+  const total = Math.round(extracted.total);
+  const advance = Math.round(extracted.advance);
+  if (advance > total)
+    throw Object.assign(new Error('Advance amount cannot exceed the total'), { status: 422 });
   const balance = Math.max(0, total - advance);
   const seq = nextSeq();
   const id = `SS-${seq}`;
-  // Explicit due date from the transcript (LLM) when stated, otherwise default tomorrow
-  const due = extracted?.dueDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
   insertAgreement({
     id,
     seq,
-    customer_name: customerName || extracted?.customerName || 'Walk-in Customer',
-    service: service || extracted?.service || deriveService(text),
-    service_regional: serviceRegional || extracted?.serviceRegional || service || deriveService(text),
+    customer_name: String(customerName || extracted.customerName || '').trim().slice(0, 120),
+    customer_phone: normalizePhone(customerPhone),
+    service: String(service || extracted.service).trim(),
+    service_regional: String(serviceRegional || extracted.serviceRegional || extracted.service).trim(),
     language,
     lang_code: langCode,
     total,
@@ -167,10 +168,10 @@ export async function createAgreement({ transcript, service, serviceRegional, cu
     balance,
     status: 'PENDING',
     condition_text: buildCondition(advance, balance),
-    due_date: due,
+    due_date: extracted.dueDate || '',
     reminder_time: '10:00',
-    alarm_enabled: 1,
-    link_id: `cf_link_sauda_${seq}`,
+    alarm_enabled: extracted.dueDate ? 1 : 0,
+    link_id: null,
     contractor_confirmed_at: null,
     customer_confirmed_at: null,
     created_at: now(),
@@ -185,15 +186,19 @@ export function updateAgreement(id, patch) {
   if (!row) throw Object.assign(new Error('Agreement not found'), { status: 404 });
 
   const next = {
+    customer_name: patch.customerName !== undefined ? String(patch.customerName).trim().slice(0, 120) : row.customer_name,
+    customer_phone: patch.customerPhone !== undefined ? normalizePhone(patch.customerPhone) : row.customer_phone,
     service: patch.service !== undefined ? String(patch.service).trim() || row.service : row.service,
     service_regional:
       patch.service !== undefined ? String(patch.service).trim() || row.service_regional : row.service_regional,
-    total: patch.total !== undefined ? clampInt(patch.total, 1, 10000000) : row.total,
-    advance: patch.advance !== undefined ? clampInt(patch.advance, 0, 10000000) : row.advance,
+    total: patch.total !== undefined ? validAmount(patch.total, 'total', 1) : row.total,
+    advance: patch.advance !== undefined ? validAmount(patch.advance, 'advance', 0) : row.advance,
     due_date: patch.dueDate !== undefined ? validDate(patch.dueDate) : row.due_date,
     reminder_time: patch.reminderTime !== undefined ? validTime(patch.reminderTime) : row.reminder_time,
     alarm_enabled: patch.alarmEnabled !== undefined ? (patch.alarmEnabled ? 1 : 0) : row.alarm_enabled,
   };
+  if (next.advance > next.total)
+    throw Object.assign(new Error('Advance amount cannot exceed the total'), { status: 400 });
   const balance = Math.max(0, next.total - next.advance);
 
   // Editing terms invalidates prior confirmations (both parties must re-verify)
@@ -205,11 +210,13 @@ export function updateAgreement(id, patch) {
 
   db.prepare(`
     UPDATE agreements SET
-      service = ?, service_regional = ?, total = ?, advance = ?, balance = ?,
+      customer_name = ?, customer_phone = ?, service = ?, service_regional = ?, total = ?, advance = ?, balance = ?,
       condition_text = ?, due_date = ?, reminder_time = ?, alarm_enabled = ?,
       contractor_confirmed_at = ?, customer_confirmed_at = ?, updated_at = ?
     WHERE id = ?
   `).run(
+    next.customer_name,
+    next.customer_phone,
     next.service,
     next.service_regional,
     next.total,
@@ -325,6 +332,8 @@ export function markIntentPaid(intentId) {
 export function snoozeAlarm(id) {
   const row = db.prepare('SELECT * FROM agreements WHERE id = ?').get(id);
   if (!row) throw Object.assign(new Error('Agreement not found'), { status: 404 });
+  if (!row.due_date)
+    throw Object.assign(new Error('Set a due date before snoozing this alarm'), { status: 400 });
   const d = new Date(row.due_date + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + 1);
   db.prepare('UPDATE agreements SET due_date = ?, updated_at = ? WHERE id = ?').run(
@@ -343,13 +352,20 @@ export function listAlarms() {
   return {
     alarms: rows,
     activeCount: rows.filter((a) => a.alarmEnabled).length,
-    dueToday: rows.filter((a) => a.alarmEnabled && a.dueDate <= now().slice(0, 10)),
+    dueToday: rows.filter((a) => a.alarmEnabled && a.dueDate && a.dueDate <= now().slice(0, 10)),
   };
 }
 
 export function getSettings() {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'profile'").get();
-  return row ? JSON.parse(row.value) : null;
+  if (!row) return null;
+  const stored = JSON.parse(row.value);
+  return {
+    name: String(stored.name || ''),
+    business: String(stored.business || ''),
+    phone: String(stored.phone || ''),
+    city: String(stored.city || ''),
+  };
 }
 
 export function putSettings(profile) {
@@ -362,28 +378,37 @@ export function putSettings(profile) {
 
 /* --------------------------- small utilities --------------------------- */
 
-function parseAmountsSafe(text) {
-  const amounts = parseAmounts(text);
-  if (!amounts || amounts.total <= 0)
-    throw Object.assign(
-      new Error('Could not detect an amount. Mention a value like â‚¹8,000 in your agreement.'),
-      { status: 422 }
-    );
-  return amounts;
+function validAmount(value, label, min) {
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount < min || amount > 10000000)
+    throw Object.assign(new Error(`${label} must be a whole rupee amount from ${min} to 10000000`), { status: 400 });
+  return amount;
 }
 
-function clampInt(v, min, max) {
-  const n = Math.round(Number(v));
-  if (!Number.isFinite(n)) return min;
-  return Math.min(max, Math.max(min, n));
+function normalizePhone(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  let digits = raw.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  if (!/^\d{10}$/.test(digits))
+    throw Object.assign(new Error('Customer phone must be a 10-digit number'), { status: 400 });
+  return digits;
 }
 
 function validDate(v) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? v : undefined;
+  if (v === '' || v == null) return '';
+  const date = String(v);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date)
+    throw Object.assign(new Error('dueDate must be a valid YYYY-MM-DD date'), { status: 400 });
+  return date;
 }
 
 function validTime(v) {
-  return /^\d{2}:\d{2}$/.test(String(v)) ? v : undefined;
+  if (v === '' || v == null) return '10:00';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v)))
+    throw Object.assign(new Error('reminderTime must be a valid HH:MM time'), { status: 400 });
+  return String(v);
 }
 
 const LANG_LABELS = {
@@ -394,10 +419,4 @@ const LANG_LABELS = {
 };
 function langLabel(code) {
   return LANG_LABELS[code] || LANG_LABELS.en;
-}
-
-function deriveService(text) {
-  const words = String(text).replace(/[\u0C80-\u0CEF\u0900-\u097F\u0B80-\u0BFF]/g, '').trim().split(/\s+/);
-  const latin = words.filter((w) => /^[A-Za-z]{3,}$/.test(w)).slice(0, 4).join(' ');
-  return latin || 'Verbal Work Agreement';
 }

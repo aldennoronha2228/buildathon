@@ -53,13 +53,16 @@ Open http://localhost:8080 (production) or http://localhost:5173 (dev).
 | GET    | `/api/health` | Liveness check |
 | GET    | `/api/agreements` | List all agreements |
 | GET    | `/api/agreements/:id` | One agreement (with confirmations) |
-| POST   | `/api/agreements` | Create from transcript (parses amounts, detects language) |
-| PATCH  | `/api/agreements/:id` | Edit terms / alarm settings (resets confirmations on term edits) |
+| POST   | `/api/agreements` | Extract terms through Sarvam LLM and persist an agreement |
+| PATCH  | `/api/agreements/:id` | Edit terms, customer contact, and alarm settings |
 | POST   | `/api/agreements/:id/confirm` | Dual-party confirmation (`{party: "contractor"|"customer"}`) |
 | POST   | `/api/agreements/:id/payments` | Create payment intent (`{stage: "ADVANCE"|"BALANCE"}`) |
 | POST   | `/api/agreements/:id/snooze` | Snooze alarm by +1 day |
 | GET    | `/api/alarms` | Pending balance alarms (+ `dueToday`) |
-| GET/PUT| `/api/settings` | Business profile & voice preferences |
+| GET/PUT| `/api/settings` | Business profile |
+| POST   | `/api/transcribe` | Transcribe raw audio through Sarvam STT |
+| GET    | `/api/payments/:intentId/status` | Reconcile a Cashfree payment link |
+| POST   | `/api/webhooks/cashfree` | Verify and process Cashfree payment-link webhooks |
 
 ## Integrations: Sarvam AI + Cashfree
 
@@ -69,21 +72,20 @@ Voice transcription requires a Sarvam API key. Payment links require Cashfree cr
 
 | Env var | Default | Effect |
 |---|---|---|
-| `SARVAM_API_KEY` | — | Master switch. When set: real mic → `POST /api/transcribe` → Sarvam STT; transcripts are structured by Sarvam LLM. When empty: voice transcription is unavailable; agreement details can be entered manually. |
-| `SARVAM_STT_MODEL` | `saarika:v2.5` | STT model (multilingual kn/hi/ta/en) |
-| `SARVAM_LLM_MODEL` | `sarvam-m` | Chat model used for term extraction |
+| `SARVAM_API_KEY` | — | Enables real mic transcription and agreement term extraction. Agreement creation returns a configuration error when it is missing. |
+| `SARVAM_STT_MODEL` | `saaras:v4` | STT model; sent to Sarvam’s `/speech-to-text` endpoint in `transcribe` mode |
+| `SARVAM_LLM_MODEL` | `sarvam-105b` | Chat model used for term extraction through `/v2/chat/completions` |
 | `SARVAM_BASE` | `https://api.sarvam.ai` | API base URL |
 
-Flow when live: browser records the mic with `MediaRecorder` → raw audio posted to `/api/transcribe` → server forwards to Sarvam (multipart) → transcript comes back → the Sarvam LLM (sarvam-m) extracts a full draft as JSON — `{service, service_regional, customer_name, due_date, total, advance}` — with strict validation (amounts must be sane, due date must be an explicit calendar date within a sane window, customer name only when actually spoken; anything invalid is ignored) → server falls back to the deterministic regex parser if the LLM is unavailable or returns garbage. Language detection is always the local Unicode-script detector (instant + deterministic).
+Flow: browser records the mic with `MediaRecorder` → raw audio posts to `/api/transcribe` → server forwards multipart audio to Sarvam STT → transcript returns to the client. `POST /api/agreements` sends that text to Sarvam LLM and persists validated terms. The backend does not infer missing amounts or silently fall back to regex parsing. If the LLM is not configured or returns invalid terms, the API responds with an error and creates no agreement. Customer name, phone, and due date are optional record fields; a valid customer phone is required to request a Cashfree payment link.
 
 ### Cashfree — payment links, webhooks, reconciliation
 
 | Env var | Default | Effect |
 |---|---|---|
-| `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | — | Master switch. When set, every milestone creates a **real Cashfree Payment Link**; the "Verify" button becomes a status checker. |
+| `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | — | Both are required to create real Cashfree Payment Links. When missing, payment-link creation returns `503`; no simulated payment is created. |
 | `CASHFREE_ENV` | `sandbox` | `sandbox` → `https://sandbox.cashfree.com`, `production` → `https://api.cashfree.com` |
 | `CASHFREE_API_VERSION` | `2023-08-01` | `x-api-version` header |
-| `CASHFREE_WEBHOOK_SECRET` | — | Enables signed webhook settlement (recommended) |
 | `PUBLIC_BASE_URL` | request host | Base URL used for webhook `notify_url` + `return_url` |
 
 Set the webhook URL in the Cashfree dashboard to:
@@ -94,19 +96,10 @@ https://<your-domain>/api/webhooks/cashfree
 
 Settlement arrives two ways (both supported simultaneously):
 
-1. **Webhook (preferred)** — `POST /api/webhooks/cashfree` verifies `x-webhook-signature` (base64 HMAC-SHA256 of the raw body) before touching the DB, then marks the intent paid and advances the milestone.
+1. **Webhook (preferred)** — `POST /api/webhooks/cashfree` verifies the timestamp and raw body signature before processing a paid link event.
 2. **Status polling** — the client auto-polls `GET /api/payments/:intentId/status` every 4 s while an unsettled live intent is on screen; a manual "I've Paid — Check Status" button is also shown.
 
 Both paths converge on the same idempotent `markIntentPaid()` settle routine that advances the agreement (`PENDING → ADVANCE_PAID → COMPLETED`) and clears the alarm when fully paid.
-
-### Extra endpoints added for integrations
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET  | `/api/health` | Includes `capabilities: { sarvamStt, sarvamLlm, cashfree }` |
-| POST | `/api/transcribe` | Raw audio in → `{transcript}` out (Sarvam proxy) |
-| GET  | `/api/payments/:intentId/status` | Live gateway status + reconciliation |
-| POST | `/api/webhooks/cashfree` | Signature-verified settlement webhook |
 
 ## Deploy
 

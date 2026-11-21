@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   listAgreements,
   getAgreement,
@@ -7,6 +8,7 @@ import {
   confirmParty,
   createPaymentIntent,
   getIntent,
+  getIntentByLinkId,
   markIntentPaid,
   snoozeAlarm,
   listAlarms,
@@ -41,6 +43,10 @@ apiRouter.get('/health', wrap(() => ({
     sarvamStt: sarvamSttEnabled(),
     sarvamLlm: sarvamLlmEnabled(),
     cashfree: cashfreeEnabled(),
+  },
+  integrations: {
+    sarvam: { stt: sarvamSttEnabled(), llm: sarvamLlmEnabled() },
+    cashfree: { enabled: cashfreeEnabled(), environment: process.env.CASHFREE_ENV || 'sandbox' },
   },
 })));
 
@@ -79,18 +85,26 @@ apiRouter.post('/agreements/:id/payments', wrapAsync(async (req) => {
   if (cashfreeEnabled()) {
     const agreement = getAgreement(req.params.id);
     if (!agreement) throw Object.assign(new Error('Agreement not found'), { status: 404 });
+    if (!agreement.confirmations.contractor.confirmed || !agreement.confirmations.customer.confirmed)
+      throw Object.assign(new Error('Both parties must confirm the agreement before payment'), { status: 409 });
+    if (!/^\d{10}$/.test(agreement.customerPhone || ''))
+      throw Object.assign(new Error('Add a valid customer phone number before creating a Cashfree link'), { status: 422 });
+    const amount = stage === 'ADVANCE' ? agreement.advance : agreement.balance;
+    if (amount <= 0) throw Object.assign(new Error('Nothing due for this payment stage'), { status: 400 });
+    if (stage === 'ADVANCE' && agreement.status !== 'PENDING')
+      throw Object.assign(new Error('Advance already settled'), { status: 409 });
+    if (stage === 'BALANCE' && agreement.status !== 'ADVANCE_PAID')
+      throw Object.assign(new Error('Advance must be settled before balance'), { status: 409 });
 
-    const settings = getSettings() || {};
-    const stamp = Date.now().toString(36);
-    const linkId = `sauda_${agreement.id}_${stage.toLowerCase()}_${stamp}`.toLowerCase();
+    const linkId = `ss_${randomUUID().replaceAll('-', '')}`;
     const base = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
 
     const link = await createPaymentLink({
       linkId,
-      amount: stage === 'ADVANCE' ? agreement.advance : agreement.balance,
+      amount,
       purpose: `Agreement ${agreement.id} • ${stage.toLowerCase()} payment`,
       customerName: agreement.customerName,
-      customerPhone: (settings.phone || '').replace(/\s+/g, '') || undefined,
+      customerPhone: agreement.customerPhone,
       returnUrl: `${base}/history?payment=${linkId}`,
       notifyUrl: `${base}/api/webhooks/cashfree`,
     });
@@ -103,7 +117,7 @@ apiRouter.post('/agreements/:id/payments', wrapAsync(async (req) => {
 
 /** Poll a payment intent's Cashfree gateway status. */
 apiRouter.get('/payments/:intentId/status', wrapAsync(async (req) => {
-  const intent = getIntent(req.params.intentId);
+  const intent = getIntent(req.params.intentId) || getIntentByLinkId(req.params.intentId);
   if (!intent) throw Object.assign(new Error('Payment intent not found'), { status: 404 });
 
   if (intent.status === 'PAID') {
@@ -128,7 +142,7 @@ apiRouter.get('/payments/:intentId/status', wrapAsync(async (req) => {
  */
 apiRouter.post('/transcribe', express.raw({ type: () => true, limit: '15mb' }), wrapAsync(async (req) => {
   if (!sarvamSttEnabled())
-    throw Object.assign(new Error('Sarvam STT is not configured (missing SARVAM_API_KEY)'), { status: 501 });
+    throw Object.assign(new Error('Sarvam STT is not configured (missing SARVAM_API_KEY)'), { status: 503 });
   if (!req.body || req.body.length === 0)
     throw Object.assign(new Error('No audio payload'), { status: 400 });
 
@@ -147,10 +161,6 @@ apiRouter.put('/settings', wrap((req) => {
     business: String(p.business || '').trim(),
     phone: String(p.phone || '').trim(),
     city: String(p.city || '').trim(),
-    upi: String(p.upi || '').trim(),
-    autoReceipt: !!p.autoReceipt,
-    autoDetectVoice: !!p.autoDetectVoice,
-    alwaysBilingual: !!p.alwaysBilingual,
   };
   return putSettings(profile);
 }));

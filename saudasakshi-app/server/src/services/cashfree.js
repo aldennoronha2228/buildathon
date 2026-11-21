@@ -38,31 +38,45 @@ function cfHeaders() {
  * @returns {Promise<{linkId:string, url:string, status:string}>}
  */
 export async function createPaymentLink({ linkId, amount, purpose, customerName, customerPhone, returnUrl, notifyUrl }) {
-  const res = await fetch(`${cfBase()}/pg/links`, {
-    method: 'POST',
-    headers: cfHeaders(),
-    body: JSON.stringify({
-      link_id: linkId,
-      link_amount: amount,
-      link_currency: 'INR',
-      link_purpose: purpose,
-      customer_details: {
-        customer_name: customerName || 'Customer',
-        customer_phone: customerPhone || '9999999999',
-      },
-      link_meta: {
-        return_url: returnUrl || undefined,
-        notify_url: notifyUrl || undefined,
-      },
-    }),
-  });
+  const phone = String(customerPhone || '').replace(/\D/g, '');
+  if (!/^\d{10}$/.test(phone))
+    throw Object.assign(new Error('A valid customer phone number is required for a Cashfree link'), { status: 400 });
+
+  let res;
+  try {
+    res = await fetch(`${cfBase()}/pg/links`, {
+      method: 'POST',
+      headers: cfHeaders(),
+      body: JSON.stringify({
+        link_id: linkId,
+        link_amount: amount,
+        link_currency: 'INR',
+        link_purpose: purpose,
+        customer_details: { customer_name: customerName || undefined, customer_phone: phone },
+        link_meta: {
+          return_url: returnUrl || undefined,
+          notify_url: notifyUrl || undefined,
+        },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err) {
+    throw Object.assign(new Error(`Cashfree link request failed: ${err.message}`), { status: 502 });
+  }
 
   const text = await res.text();
-  if (!res.ok) throw new Error(`Cashfree link creation failed (${res.status}): ${text.slice(0, 300)}`);
-  const data = JSON.parse(text);
+  if (!res.ok) throw Object.assign(new Error(`Cashfree link creation failed (${res.status}): ${text.slice(0, 300)}`), { status: 502 });
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error('Cashfree returned an invalid response'), { status: 502 });
+  }
+  const url = data.link_url || data.url;
+  if (!url) throw Object.assign(new Error('Cashfree did not return a payment URL'), { status: 502 });
   return {
     linkId: data.link_id || linkId,
-    url: data.link_url || data.url || '',
+    url,
     status: data.link_status || 'ACTIVE',
   };
 }
@@ -72,43 +86,51 @@ export async function createPaymentLink({ linkId, amount, purpose, customerName,
  * @returns {Promise<{status:'ACTIVE'|'PAID'|'EXPIRED'|string}>}
  */
 export async function getPaymentLinkStatus(linkId) {
-  const res = await fetch(`${cfBase()}/pg/links/${encodeURIComponent(linkId)}`, {
-    method: 'GET',
-    headers: cfHeaders(),
-  });
-  if (!res.ok) throw new Error(`Cashfree status check failed (${res.status})`);
+  let res;
+  try {
+    res = await fetch(`${cfBase()}/pg/links/${encodeURIComponent(linkId)}`, {
+      method: 'GET',
+      headers: cfHeaders(),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err) {
+    throw Object.assign(new Error(`Cashfree status request failed: ${err.message}`), { status: 502 });
+  }
+  if (!res.ok) throw Object.assign(new Error(`Cashfree status check failed (${res.status})`), { status: 502 });
   const data = await res.json();
   return { status: data.link_status || 'ACTIVE' };
 }
 
 /**
  * Verify a Cashfree webhook signature.
- * Cashfree signs the RAW request body: base64(HMAC-SHA256(rawBody, webhookSecret)),
- * delivered in the `x-webhook-signature` header.
+ * Cashfree signs timestamp + "." + raw body with the merchant secret.
  */
-export function verifyWebhookSignature(rawBody, signatureHeader) {
-  if (!process.env.CASHFREE_WEBHOOK_SECRET) return false;
-  if (!signatureHeader) return false;
+export function verifyWebhookSignature(rawBody, signatureHeader, timestamp) {
+  const secret = process.env.CASHFREE_SECRET_KEY;
+  if (!secret || !signatureHeader || !timestamp) return false;
   const expected = crypto
-    .createHmac('sha256', process.env.CASHFREE_WEBHOOK_SECRET)
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.`)
     .update(rawBody)
     .digest('base64');
   try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader));
+    const expectedBuffer = Buffer.from(expected);
+    const signatureBuffer = Buffer.from(signatureHeader);
+    return expectedBuffer.length === signatureBuffer.length && crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
   } catch {
     return false;
   }
 }
 
-/** Best-effort extraction of the link id from a webhook payload. */
+/** Return a payment link id only for a confirmed paid event. */
 export function extractLinkIdFromWebhook(payloadString) {
   try {
     const data = JSON.parse(payloadString);
+    const link = data?.data?.link || data?.link;
+    if (String(link?.link_status || data?.link_status || '').toUpperCase() !== 'PAID') return null;
     return (
-      data?.data?.link?.link_id ||
-      data?.data?.order?.order_id ||
+      link?.link_id ||
       data?.link_id ||
-      data?.order_id ||
       null
     );
   } catch {

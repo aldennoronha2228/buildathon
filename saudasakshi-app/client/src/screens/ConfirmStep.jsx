@@ -21,7 +21,9 @@ export default function ConfirmStep() {
       service: draft.service,
       total: String(draft.total),
       advance: String(draft.advance),
-      dueDate: draft.dueDate,
+      dueDate: draft.dueDate || '',
+      customerName: draft.customerName || '',
+      customerPhone: draft.customerPhone || '',
     });
     setEditing(true);
   };
@@ -35,10 +37,12 @@ export default function ConfirmStep() {
         service: form.service.trim() || draft.service,
         total,
         advance,
-        dueDate: /^\d{4}-\d{2}-\d{2}$/.test(form.dueDate) ? form.dueDate : draft.dueDate,
+        dueDate: form.dueDate,
+        customerName: form.customerName,
+        customerPhone: form.customerPhone,
       });
       setEditing(false);
-      pushToast('Terms updated. Please re-confirm.');
+      pushToast('Agreement details saved.');
     } catch (err) {
       pushToast(err.message);
     } finally {
@@ -108,12 +112,12 @@ export default function ConfirmStep() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <PartyCard
               label="Provider"
-              name={profile?.name || profile?.business || 'You'}
+              name={profile?.name || profile?.business || 'Provider details not set'}
               role="Service Provider"
             />
             <PartyCard
               label="Client"
-              name={draft.customerName || 'Customer'}
+              name={draft.customerName || 'Customer name not provided'}
               role="Client"
             />
           </div>
@@ -177,7 +181,7 @@ export default function ConfirmStep() {
               <div className="min-w-0">
                 <span className="block text-[10px] font-medium uppercase tracking-wider text-[#A1A1AA]">Balance Due Date</span>
                 <div className="text-xs font-semibold text-white mt-0.5">
-                  {formatShortDate(draft.dueDate, { withYear: true })} • Alarm {formatTime12h(draft.reminderTime)}
+                  {draft.dueDate ? `${formatShortDate(draft.dueDate, { withYear: true })} • Alarm ${formatTime12h(draft.reminderTime)}` : 'No due date provided'}
                 </div>
               </div>
             </div>
@@ -189,6 +193,30 @@ export default function ConfirmStep() {
                 className="bg-[#09090B] border border-[#27272A] focus:border-white rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none"
               />
             )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-[10px] font-medium text-[#A1A1AA]">
+              Customer Name
+              <input
+                value={editing ? form.customerName : draft.customerName}
+                readOnly={!editing}
+                onChange={(e) => setForm({ ...form, customerName: e.target.value })}
+                className="mt-1 w-full bg-[#09090B] border border-[#27272A] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none read-only:text-zinc-400"
+              />
+            </label>
+            <label className="block text-[10px] font-medium text-[#A1A1AA]">
+              Customer Phone
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={editing ? form.customerPhone : draft.customerPhone}
+                readOnly={!editing}
+                onChange={(e) => setForm({ ...form, customerPhone: e.target.value })}
+                placeholder={editing ? '10-digit number' : 'Not provided'}
+                className="mt-1 w-full bg-[#09090B] border border-[#27272A] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none read-only:text-zinc-400"
+              />
+            </label>
           </div>
 
           {/* Bilingual reference */}
@@ -244,6 +272,9 @@ export default function ConfirmStep() {
               ? 'Both parties verified. Ready to generate payment link.'
               : 'Both parties must confirm terms to unlock payment.'}
           </p>
+          {bothConfirmed && !/^\d{10}$/.test(draft.customerPhone || '') && (
+            <p className="text-center text-[11px] text-amber-200">Edit agreement details and add the customer’s 10-digit phone to create a Cashfree link.</p>
+          )}
         </div>
       </div>
 
@@ -251,7 +282,7 @@ export default function ConfirmStep() {
       <div className="mt-8 pt-2">
         <button
           onClick={proceedToPayment}
-          disabled={!bothConfirmed}
+          disabled={!bothConfirmed || !/^\d{10}$/.test(draft.customerPhone || '')}
           className="w-full py-3.5 px-5 rounded-xl bg-white text-[#09090B] font-semibold text-sm flex items-center justify-center gap-2 transition-all hover:bg-zinc-200 active:scale-[0.99] disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Proceed to Cashfree Payment

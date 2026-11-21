@@ -37,6 +37,7 @@ export default function VoiceStep() {
 
   const detected = transcript.trim().length >= 5 ? detectLanguage(transcript) : null;
   const detectedScenario = detected ? scenarioFor(detected) : null;
+  const canExtract = !!capabilities?.sarvamLlm;
 
   /* ------------------------------ live mode ------------------------------ */
 
@@ -63,7 +64,8 @@ export default function VoiceStep() {
         setListening(false);
         setPhase('transcribing');
         try {
-          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+          const recordingType = recorder.mimeType || chunksRef.current[0]?.type || 'audio/webm';
+          const blob = new Blob(chunksRef.current, { type: recordingType });
           const { transcript: text } = await api.transcribe(blob);
           const clean = String(text || '').trim();
           if (!clean) {
@@ -86,7 +88,16 @@ export default function VoiceStep() {
       setPhase('recording');
       setTranscript('');
       setLastDetected(null);
-      tickerRef.current = setInterval(() => setRecordingSecs((s) => s + 1), 1000);
+      let elapsed = 0;
+      tickerRef.current = setInterval(() => {
+        elapsed += 1;
+        setRecordingSecs(elapsed);
+        if (elapsed >= 29) {
+          clearInterval(tickerRef.current);
+          recorderRef.current?.stop();
+          pushToast('Recording stopped before Sarvam’s 30-second limit');
+        }
+      }, 1000);
     } catch (err) {
       pushToast('Microphone unavailable: ' + (err.message || 'permission denied'));
     }
@@ -134,7 +145,7 @@ export default function VoiceStep() {
           </h1>
           <div className="mt-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#121215] border border-[#27272A] text-[11px] font-medium text-[#A1A1AA]">
             <span className={`w-1.5 h-1.5 rounded-full ${listening ? 'bg-white animate-pulse' : 'bg-white'}`} />
-            <span>{liveVoice ? 'Sarvam STT Live • Speak in Kannada, Hindi, Tamil, or English' : 'Auto-Detect • Speak in Kannada, Hindi, Tamil, or English'}</span>
+            <span>{liveVoice ? 'Sarvam STT connected' : 'Sarvam STT not configured'}</span>
           </div>
         </div>
 
@@ -200,11 +211,17 @@ export default function VoiceStep() {
             placeholder={
               liveVoice
                 ? 'Tap the microphone and speak — Sarvam transcribes here. You can also type directly.'
-                : 'Speak naturally in Kannada, Hindi, Tamil, or English... the transcript appears here. You can also type directly.'
+                : 'Type an agreement transcript here. Configure Sarvam STT on the server to use microphone transcription.'
             }
             className="w-full bg-transparent text-sm leading-relaxed text-white placeholder-zinc-600 focus:outline-none resize-none"
           />
         </div>
+
+        {!canExtract && (
+          <p className="mt-3 text-xs leading-relaxed text-amber-200">
+            Sarvam LLM is not configured. Add SARVAM_API_KEY to the server environment and restart it to extract and save agreements.
+          </p>
+        )}
 
       </div>
 
@@ -212,7 +229,7 @@ export default function VoiceStep() {
       <div className="mt-8 pt-2">
         <button
           onClick={onGenerate}
-          disabled={transcript.trim().length < 5 || busy}
+          disabled={transcript.trim().length < 5 || busy || !canExtract}
           className="w-full py-3.5 px-5 rounded-xl bg-white text-[#09090B] font-semibold text-sm flex items-center justify-center gap-2 transition-all hover:bg-zinc-200 active:scale-[0.99] disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <svg
