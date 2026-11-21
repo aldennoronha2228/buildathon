@@ -146,7 +146,7 @@
               <!-- Initials Avatar -->
               <div id="sidebar-avatar" class="w-11 h-11 rounded-full bg-white text-[#09090B] font-bold text-sm flex items-center justify-center shrink-0 tracking-tight">RK</div>
               <div class="min-w-0">
-                <div id="sidebar-user-name" class="text-sm font-semibold text-white truncate">Ramesh Kumar</div>
+                <div id="sidebar-user-name" class="text-sm font-semibold text-white truncate"></div>
                 <div id="sidebar-user-biz" class="text-xs text-[#A1A1AA] truncate mt-0.5">Ramesh Electricals • Udupi</div>
               </div>
             </div>
@@ -387,26 +387,6 @@
               <textarea id="transcript-input" rows="4" oninput="handleTranscriptChange()" placeholder="Speak naturally in Kannada, Hindi, Tamil, or English... Sarvam AI will auto-detect the language and transcribe here." class="w-full bg-transparent text-sm leading-relaxed text-white placeholder-zinc-600 focus:outline-none resize-none"></textarea>
             </div>
 
-            <!-- Discreet Quick-Test Sample Chips for Live Demo -->
-            <div class="mt-5">
-              <div class="flex items-center justify-between mb-2.5 px-0.5">
-                <span class="text-[10px] font-medium uppercase tracking-wider text-[#A1A1AA]">Quick Demo Samples (Auto-Detect)</span>
-              </div>
-              <div class="grid grid-cols-4 gap-2">
-                <button onclick="runDemoAutoDetect('kn')" class="py-2 px-2 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-zinc-300 hover:text-white transition-colors truncate">
-                  Test Kannada
-                </button>
-                <button onclick="runDemoAutoDetect('hi')" class="py-2 px-2 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-zinc-300 hover:text-white transition-colors truncate">
-                  Test Hindi
-                </button>
-                <button onclick="runDemoAutoDetect('ta')" class="py-2 px-2 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-zinc-300 hover:text-white transition-colors truncate">
-                  Test Tamil
-                </button>
-                <button onclick="runDemoAutoDetect('en')" class="py-2 px-2 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-zinc-300 hover:text-white transition-colors truncate">
-                  Test EN
-                </button>
-              </div>
-            </div>
           </div>
 
           <!-- Bottom Action: Generate Agreement -->
@@ -455,12 +435,12 @@
                     Service Description
                   </span>
                   <h2 id="view-service" class="text-base font-semibold text-white mt-1">
-                    Kitchen Wiring &amp; Electrical Repair
+                    
                   </h2>
                   <input id="edit-service" type="text" class="hidden mt-1.5 w-full bg-[#09090B] border border-[#27272A] focus:border-white rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
                 </div>
                 <span id="view-agreement-id" class="shrink-0 px-2 py-0.5 rounded-md bg-[#09090B] border border-[#27272A] text-[10px] font-mono text-[#A1A1AA]">
-                  #SS-8492
+                  #SS-0000
                 </span>
               </div>
 
@@ -688,7 +668,7 @@
 
               <!-- Copyable Cashfree Payment Link -->
               <div class="w-full mt-5 flex items-center gap-2 bg-[#09090B] border border-[#27272A] rounded-xl p-2 pl-3">
-                <input id="cashfree-link-input" type="text" readonly="" value="https://payments.cashfree.com/links/sauda-8492" class="w-full bg-transparent text-xs font-mono text-zinc-300 focus:outline-none truncate">
+                <input id="cashfree-link-input" type="text" readonly="" value="" class="w-full bg-transparent text-xs font-mono text-zinc-300 focus:outline-none truncate">
                 <button id="copy-link-btn" onclick="copyPaymentLink()" class="shrink-0 px-3 py-1.5 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-xs font-medium text-white transition-colors">
                   Copy
                 </button>
@@ -704,7 +684,7 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                 <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
               </svg>
-              <span id="verify-btn-text">Verify / Simulate Advance Payment</span>
+              <span id="verify-btn-text">Cashfree is not connected</span>
             </button>
 
             <!-- Switch to Balance Payment Gateway CTA (Shown after Advance is Paid) -->
@@ -782,12 +762,12 @@
 
             <div>
               <label class="block text-[11px] font-medium text-[#A1A1AA] mb-1">Full Name</label>
-              <input id="setting-name" type="text" value="Ramesh Kumar" class="w-full bg-[#09090B] border border-[#27272A] focus:border-white rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition-colors">
+              <input id="setting-name" type="text" value="" class="w-full bg-[#09090B] border border-[#27272A] focus:border-white rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition-colors">
             </div>
 
             <div>
               <label class="block text-[11px] font-medium text-[#A1A1AA] mb-1">Business / Trade Name</label>
-              <input id="setting-business" type="text" value="Ramesh Electricals" class="w-full bg-[#09090B] border border-[#27272A] focus:border-white rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition-colors">
+              <input id="setting-business" type="text" value="" class="w-full bg-[#09090B] border border-[#27272A] focus:border-white rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none transition-colors">
             </div>
 
             <div class="grid grid-cols-2 gap-3">
@@ -900,7 +880,7 @@
         <div class="flex items-start justify-between gap-3 pb-3 border-b border-[#27272A]">
           <div>
             <div class="flex items-center gap-2">
-              <span id="modal-id" class="text-[11px] font-mono text-[#A1A1AA]">#SS-8492</span>
+              <span id="modal-id" class="text-[11px] font-mono text-[#A1A1AA]">#SS-0000</span>
               <span id="modal-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-semibold"></span>
             </div>
             <h3 id="modal-service" class="text-base font-semibold text-white mt-1.5"></h3>
@@ -1021,11 +1001,11 @@
 
       // User Account & Settings
       profile: {
-        name: 'Ramesh Kumar',
-        business: 'Ramesh Electricals',
-        phone: '+91 98450 21490',
-        city: 'Udupi',
-        upi: 'ramesh.elec@okaxis',
+        name: '',
+        business: '',
+        phone: '',
+        city: '',
+        upi: '',
         autoReceipt: true,
         autoDetectVoice: true,
         alwaysBilingual: true,
@@ -1033,15 +1013,15 @@
 
       // Active 3-Step Workflow Agreement
       agreement: {
-        id: 'SS-8504',
+        id: '',
         customerName: 'Walk-in Customer',
-        serviceEn: 'Kitchen Wiring & Electrical Repair',
+        serviceEn: '',
         serviceRegional: 'ಅಡುಗೆಮನೆ ವೈರಿಂಗ್ ಮತ್ತು ಎಲೆಕ್ಟ್ರಿಕಲ್ ರಿಪೇರಿ',
         regionalLangCode: 'kn',
-        total: 8000,
-        advance: 2000,
-        balance: 6000,
-        dueDate: '2026-11-22',
+        total: 0,
+        advance: 0,
+        balance: 0,
+        dueDate: '',
         reminderTime: '10:00',
         alarmEnabled: true,
       },
@@ -1055,60 +1035,7 @@
       paymentStatus: 'PENDING', // 'PENDING' | 'ADVANCE_PAID' | 'COMPLETED'
       activeAlarmBannerId: null,
 
-      // Pre-populated Agreement History
-      history: [
-        {
-          id: 'SS-8492',
-          customerName: 'Suresh Pai',
-          service: 'Kitchen Wiring & MCB Upgrade',
-          total: 8000,
-          advance: 2000,
-          balance: 6000,
-          status: 'ADVANCE_PAID',
-          language: 'ಕನ್ನಡ (Kannada)',
-          langShort: 'ಕನ್ನಡ',
-          date: 'Today, 2:15 PM',
-          dueDate: '2026-11-21',
-          reminderTime: '10:00',
-          alarmEnabled: true,
-          cashfreeLinkId: 'cf_link_sauda_8492',
-          condition: '₹2,000 upfront via Cashfree, ₹6,000 upon work completion.',
-        },
-        {
-          id: 'SS-8471',
-          customerName: 'Meera Shetty',
-          service: 'Bathroom Plumbing Leak Fix',
-          total: 3500,
-          advance: 1000,
-          balance: 0,
-          status: 'COMPLETED',
-          language: 'हिंदी (Hindi)',
-          langShort: 'हिंदी',
-          date: 'Yesterday, 5:40 PM',
-          dueDate: '2026-11-18',
-          reminderTime: '09:30',
-          alarmEnabled: false,
-          cashfreeLinkId: 'cf_link_sauda_8471',
-          condition: '₹1,000 advance paid, ₹2,500 final balance settled.',
-        },
-        {
-          id: 'SS-8459',
-          customerName: 'Prakash Rao',
-          service: 'Inverter Battery Installation',
-          total: 12000,
-          advance: 4000,
-          balance: 8000,
-          status: 'PENDING',
-          language: 'தமிழ் (Tamil)',
-          langShort: 'தமிழ்',
-          date: '17 Nov, 11:20 AM',
-          dueDate: '2026-11-24',
-          reminderTime: '11:00',
-          alarmEnabled: true,
-          cashfreeLinkId: 'cf_link_sauda_8459',
-          condition: '₹4,000 upfront for battery procurement, ₹8,000 after installation.',
-        },
-      ],
+      history: [],
     };
 
     /* ==================== LOCAL PERSISTENCE (FRONTEND-ONLY) ==================== */
@@ -1132,7 +1059,7 @@
         if (!raw) return;
         const data = JSON.parse(raw);
         if (data && Array.isArray(data.history) && data.history.length) {
-          state.history = data.history;
+          state.history = data.history.filter((item) => !['SS-8492', 'SS-8471', 'SS-8459'].includes(item.id));
         }
         if (data && data.profile && typeof data.profile === 'object') {
           Object.assign(state.profile, data.profile);
@@ -1160,12 +1087,11 @@
         englishName: 'Kannada',
         fullName: 'ಕನ್ನಡ (Kannada)',
         confidence: '98%',
-        sample: 'ನಾನು ಗ್ರಾಹಕರ ಅಡುಗೆಮನೆ ವೈರಿಂಗ್ ರಿಪೇರಿ ಕೆಲಸವನ್ನು ₹8,000 ಗೆ ಒಪ್ಪಿಕೊಂಡಿದ್ದೇನೆ. ಅವರು ₹2,000 ಮುಂಗಡವಾಗಿ ಮತ್ತು ಉಳಿದ ₹6,000 ಕೆಲಸ ಮುಗಿದ ನಂತರ ನೀಡುತ್ತಾರೆ.',
-        serviceEn: 'Kitchen Wiring & Electrical Repair',
+        serviceEn: '',
         serviceRegional: 'ಅಡುಗೆಮನೆ ವೈರಿಂಗ್ ಮತ್ತು ಎಲೆಕ್ಟ್ರಿಕಲ್ ರಿಪೇರಿ',
-        total: 8000,
-        advance: 2000,
-        balance: 6000,
+        total: 0,
+        advance: 0,
+        balance: 0,
         labels: {
           service: 'ಸೇವೆಯ ವಿವರ',
           total: 'ಒಟ್ಟು ಮೊತ್ತ',
@@ -1181,7 +1107,6 @@
         englishName: 'Hindi',
         fullName: 'हिंदी (Hindi)',
         confidence: '98%',
-        sample: 'मैंने ग्राहक के बाथरूम की प्लंबिंग और पाइपलाइन रिपेयर का काम ₹5,500 में तय किया है। वे ₹1,500 एडवांस देंगे और बाकी ₹4,000 काम पूरा होने के बाद देंगे।',
         serviceEn: 'Bathroom Plumbing & Pipeline Repair',
         serviceRegional: 'बाथरूम प्लंबिंग और पाइपलाइन रिपेयर',
         total: 5500,
@@ -1202,7 +1127,6 @@
         englishName: 'Tamil',
         fullName: 'தமிழ் (Tamil)',
         confidence: '97%',
-        sample: 'வாடிக்கையாளரின் ஏசி சர்வீஸ் மற்றும் கேஸ் ரீஃபில் வேலைக்கு ₹4,500 பேசினேன். ₹1,500 முன்பணமாகவும், மீதி ₹3,000 வேலை முடிந்த பிறகும் கொடுப்பார்கள்.',
         serviceEn: 'AC Servicing & Gas Refill',
         serviceRegional: 'ஏசி சர்வீஸ் மற்றும் கேஸ் ரீஃபில்',
         total: 4500,
@@ -1223,7 +1147,6 @@
         englishName: 'English',
         fullName: 'English (India)',
         confidence: '99%',
-        sample: 'I agreed to install a new inverter and battery setup for ₹12,000. The customer will pay ₹4,000 upfront as advance and the remaining ₹8,000 after installation.',
         serviceEn: 'Inverter & Battery Setup Installation',
         serviceRegional: 'ಇನ್ವರ್ಟರ್ ಮತ್ತು ಬ್ಯಾಟರಿ ಅಳವಡಿಕೆ',
         total: 12000,
@@ -1493,65 +1416,8 @@
       highlightHeaderAutoDetect(langCode);
     }
 
-    function startListening(forcedLangCode = null) {
-      if (state.isListening) stopListening();
-      state.isListening = true;
-
-      // Pick next language in cycle unless triggered by a quick-test chip
-      let targetLang = forcedLangCode;
-      if (!targetLang) {
-        targetLang = AUTO_DETECT_ORDER[state.autoDetectCycleIndex % AUTO_DETECT_ORDER.length];
-        state.autoDetectCycleIndex++;
-      }
-
-      const micBtn = document.getElementById('mic-btn');
-      const micIcon = document.getElementById('mic-icon');
-      const stopIcon = document.getElementById('stop-icon');
-      const ring1 = document.getElementById('mic-ring-1');
-      const ring2 = document.getElementById('mic-ring-2');
-      const micDot = document.getElementById('mic-dot');
-      const statusText = document.getElementById('mic-status-text');
-      const textarea = document.getElementById('transcript-input');
-      const detectedPill = document.getElementById('detected-lang-pill');
-
-      micBtn.classList.add('border-white', 'bg-[#18181B]');
-      micIcon.classList.add('hidden');
-      stopIcon.classList.remove('hidden');
-      ring1.classList.remove('hidden');
-      ring2.classList.remove('hidden');
-      micDot.className = 'w-2 h-2 rounded-full bg-white animate-pulse';
-      detectedPill.classList.add('hidden');
-      textarea.value = '';
-      handleTranscriptChange();
-
-      // Phase 1: Identifying language
-      statusText.innerHTML = `<span class="text-white font-medium">Listening &amp; identifying language...</span>`;
-
-      clearTimeout(state.detectPhaseTimer);
-      clearInterval(state.streamTimer);
-
-      state.detectPhaseTimer = setTimeout(() => {
-        if (!state.isListening) return;
-
-        // Phase 2: Language auto-detected, begin streaming transcript
-        const scenario = SCENARIOS[targetLang];
-        applyScenarioToDraft(targetLang);
-        statusText.innerHTML = `Auto-Detected <span class="text-white font-semibold">${scenario.englishName}</span> — transcribing...`;
-
-        const words = scenario.sample.split(' ');
-        let index = 0;
-
-        state.streamTimer = setInterval(() => {
-          if (index < words.length) {
-            textarea.value += (index === 0 ? '' : ' ') + words[index];
-            textarea.scrollTop = textarea.scrollHeight;
-            handleTranscriptChange();
-            index++;
-          } else {
-            stopListening(true);
-          }
-        }, 125);
-      }, 650);
+    function startListening() {
+      showToast('Voice transcription is not connected. Enter the transcript manually.');
     }
 
     function stopListening(completed = false) {
@@ -2092,13 +1958,13 @@
       state.agreement = {
         id: `SS-${8500 + state.history.length + 1}`,
         customerName: 'Walk-in Customer',
-        serviceEn: 'Kitchen Wiring & Electrical Repair',
+        serviceEn: '',
         serviceRegional: 'ಅಡುಗೆಮನೆ ವೈರಿಂಗ್ ಮತ್ತು ಎಲೆಕ್ಟ್ರಿಕಲ್ ರಿಪೇರಿ',
         regionalLangCode: 'kn',
-        total: 8000,
-        advance: 2000,
-        balance: 6000,
-        dueDate: '2026-11-22',
+        total: 0,
+        advance: 0,
+        balance: 0,
+        dueDate: '',
         reminderTime: '10:00',
         alarmEnabled: true,
       };
@@ -2497,11 +2363,11 @@
     }
 
     function saveAccountSettings() {
-      state.profile.name = document.getElementById('setting-name').value.trim() || 'Ramesh Kumar';
-      state.profile.business = document.getElementById('setting-business').value.trim() || 'Ramesh Electricals';
-      state.profile.phone = document.getElementById('setting-phone').value.trim() || '+91 98450 21490';
-      state.profile.city = document.getElementById('setting-city').value.trim() || 'Udupi';
-      state.profile.upi = document.getElementById('setting-upi').value.trim() || 'ramesh.elec@okaxis';
+      state.profile.name = document.getElementById('setting-name').value.trim();
+      state.profile.business = document.getElementById('setting-business').value.trim();
+      state.profile.phone = document.getElementById('setting-phone').value.trim();
+      state.profile.city = document.getElementById('setting-city').value.trim();
+      state.profile.upi = document.getElementById('setting-upi').value.trim();
 
       updateSidebarStats();
       persistState();

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state/store.jsx';
 import { api } from '../api.js';
-import { AUTO_DETECT_ORDER, SCENARIOS, scenarioFor } from '../lib/scenarios.js';
+import { scenarioFor } from '../lib/scenarios.js';
 import { detectLanguage } from '../lib/format.js';
 
 /**
@@ -9,7 +9,6 @@ import { detectLanguage } from '../lib/format.js';
  *
  * Live mode (SARVAM_API_KEY set on the server): records the real microphone via
  * MediaRecorder and transcribes through the server proxy (POST /api/transcribe).
- * Demo mode (no key): cycles the scripted sample transcripts exactly like the MVP.
  * Typed input is always supported — language is detected from Unicode script ranges.
  */
 export default function VoiceStep() {
@@ -21,8 +20,6 @@ export default function VoiceStep() {
   const [phase, setPhase] = useState('idle'); // idle | listening | transcribing
   const [busy, setBusy] = useState(false);
   const [recordingSecs, setRecordingSecs] = useState(0);
-  const timersRef = useRef([]);
-  const cycleRef = useRef(0);
 
   // Real-capture refs
   const recorderRef = useRef(null);
@@ -30,13 +27,8 @@ export default function VoiceStep() {
   const streamRef = useRef(null);
   const tickerRef = useRef(null);
 
-  const clearTimers = () => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
-  };
   useEffect(
     () => () => {
-      clearTimers();
       clearInterval(tickerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
     },
@@ -45,44 +37,6 @@ export default function VoiceStep() {
 
   const detected = transcript.trim().length >= 5 ? detectLanguage(transcript) : null;
   const detectedScenario = detected ? scenarioFor(detected) : null;
-
-  /* ------------------------------ demo mode ------------------------------ */
-
-  const stopDemo = (completedLang = null) => {
-    clearTimers();
-    setListening(false);
-    setPhase('idle');
-    if (completedLang) {
-      setLastDetected({ code: completedLang, confidence: scenarioFor(completedLang).confidence });
-      pushToast(`Captured in ${scenarioFor(completedLang).englishName}`);
-    }
-  };
-
-  const startDemo = (forcedLang = null) => {
-    clearTimers();
-    const lang = forcedLang || AUTO_DETECT_ORDER[cycleRef.current % AUTO_DETECT_ORDER.length];
-    cycleRef.current += 1;
-    setListening(true);
-    setPhase('listening');
-    setTranscript('');
-    setLastDetected(null);
-
-    timersRef.current.push(
-      setTimeout(() => {
-        setPhase('transcribing');
-        setLastDetected({ code: lang, confidence: scenarioFor(lang).confidence });
-        const words = scenarioFor(lang).sample.split(' ');
-        words.forEach((word, i) => {
-          timersRef.current.push(
-            setTimeout(() => {
-              setTranscript((t) => (t ? t + ' ' : '') + word);
-              if (i === words.length - 1) stopDemo(lang);
-            }, i * 110)
-          );
-        });
-      }, 650)
-    );
-  };
 
   /* ------------------------------ live mode ------------------------------ */
 
@@ -140,19 +94,13 @@ export default function VoiceStep() {
 
   /* ------------------------------ shared ------------------------------ */
 
-  const stop = () => (liveVoice ? stopLive() : stopDemo());
-  const start = (forcedLang = null) => (liveVoice ? startLive() : startDemo(forcedLang));
-  const onChip = (code) => start(code);
+  const stop = () => stopLive();
+  const start = () => liveVoice ? startLive() : pushToast('Voice transcription is not configured. Enter the transcript manually.');
   const onGenerate = async () => {
     if (transcript.trim().length < 5) return;
     setBusy(true);
     try {
-      const preset = Object.values(SCENARIOS).find((s) => s.sample === transcript.trim());
-      await generateAgreement({
-        transcript: transcript.trim(),
-        service: preset?.serviceEn,
-        serviceRegional: preset?.serviceRegional,
-      });
+      await generateAgreement({ transcript: transcript.trim() });
       setCardLang('en');
     } catch (err) {
       pushToast(err.message);
@@ -172,7 +120,7 @@ export default function VoiceStep() {
       ? 'Transcribing with Sarvam…'
       : detected
         ? null
-        : 'Tap microphone & speak in any language';
+        : 'Enter an agreement transcript below';
 
   return (
     <div className="flex-1 flex flex-col justify-between screen-animate">
@@ -258,25 +206,6 @@ export default function VoiceStep() {
           />
         </div>
 
-        {/* Quick demo chips (demo mode only) */}
-        {!liveVoice && (
-          <div className="mt-5">
-            <div className="flex items-center justify-between mb-2.5 px-0.5">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-[#A1A1AA]">Quick Demo Samples (Auto-Detect)</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {AUTO_DETECT_ORDER.map((code) => (
-                <button
-                  key={code}
-                  onClick={() => onChip(code)}
-                  className="py-2 px-2 rounded-lg bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-[11px] font-medium text-zinc-300 hover:text-white transition-colors truncate"
-                >
-                  Test {code === 'en' ? 'EN' : scenarioFor(code).englishName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Generate CTA */}

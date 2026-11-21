@@ -14,10 +14,9 @@ const EMPTY = {
 };
 
 export default function SettingsView() {
-  const { profile, saveSettings, resetDemo, pushToast, capabilities } = useApp();
+  const { profile, saveSettings, pushToast, capabilities } = useApp();
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
-  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (profile) setForm({ ...EMPTY, ...profile });
@@ -37,17 +36,6 @@ export default function SettingsView() {
     }
   };
 
-  const onReset = async () => {
-    setResetting(true);
-    try {
-      await resetDemo();
-      pushToast('Demo data reset to seed state');
-    } catch (err) {
-      pushToast(err.message);
-    } finally {
-      setResetting(false);
-    }
-  };
 
   return (
     <div className="flex-1 flex flex-col screen-animate">
@@ -61,7 +49,7 @@ export default function SettingsView() {
         <div className="bg-[#121215] border border-[#27272A] rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Business Profile</span>
-            <span className="text-[11px] text-white font-medium">Verified</span>
+            
           </div>
 
           <Field label="Full Name" value={form.name} onChange={set('name')} />
@@ -77,7 +65,7 @@ export default function SettingsView() {
           <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Cashfree Settlements</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${capabilities?.cashfree ? 'bg-white/10 border-white/25 text-white' : 'border-[#3F3F46] text-zinc-400'}`}>
-              {capabilities?.cashfree ? 'GATEWAY • LIVE' : 'SIMULATED'}
+              {capabilities?.cashfree ? 'GATEWAY LIVE' : 'NOT CONNECTED'}
             </span>
           </div>
 
@@ -86,7 +74,7 @@ export default function SettingsView() {
           <div className="flex items-center justify-between bg-[#09090B] border border-[#27272A] rounded-xl px-3.5 py-3">
             <div>
               <div className="text-xs font-medium text-white">Settlement Bank Account</div>
-              <div className="text-[11px] font-mono text-[#A1A1AA] mt-0.5">Canara Bank •••• 4821</div>
+              <div className="text-[11px] font-mono text-[#A1A1AA] mt-0.5">No bank account connected</div>
             </div>
             <span className="text-[11px] font-medium text-white">Primary</span>
           </div>
@@ -104,7 +92,7 @@ export default function SettingsView() {
           <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">Voice AI</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${capabilities?.sarvamStt ? 'bg-white/10 border-white/25 text-white' : 'border-[#3F3F46] text-zinc-400'}`}>
-              {capabilities?.sarvamStt ? 'Sarvam STT • LIVE' : 'Demo transcripts'}
+              {capabilities?.sarvamStt ? 'Sarvam STT LIVE' : 'NOT CONNECTED'}
             </span>
           </div>
 
@@ -148,13 +136,6 @@ export default function SettingsView() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
 
-        <button
-          onClick={onReset}
-          disabled={resetting}
-          className="w-full py-2.5 px-5 rounded-xl bg-[#121215] border border-[#27272A] hover:border-zinc-500 text-zinc-300 hover:text-white font-medium text-xs transition-colors disabled:opacity-40"
-        >
-          {resetting ? 'Resetting...' : 'Reset Demo Data'}
-        </button>
       </div>
     </div>
   );

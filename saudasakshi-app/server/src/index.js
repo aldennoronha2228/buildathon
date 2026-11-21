@@ -3,12 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiRouter } from './api.js';
-import { seedIfEmpty, getIntentByLinkId, markIntentPaid } from './db.js';
+import { getIntentByLinkId, markIntentPaid } from './db.js';
 import { verifyWebhookSignature, extractLinkIdFromWebhook } from './services/cashfree.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-seedIfEmpty();
 
 const app = express();
 
@@ -77,9 +76,9 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT) || 8080;
 app.listen(port, () => {
   const caps = [
-    `sarvam-stt:${process.env.SARVAM_API_KEY ? 'live' : 'demo'}`,
+    `sarvam-stt:${process.env.SARVAM_API_KEY ? 'live' : 'unavailable'}`,
     `sarvam-llm:${process.env.SARVAM_API_KEY ? 'live' : 'regex'}`,
-    `cashfree:${process.env.CASHFREE_APP_ID ? 'live' : 'simulated'}`,
+    `cashfree:${process.env.CASHFREE_APP_ID ? 'live' : 'unavailable'}`,
   ];
   console.log(`SaudaSakshi server running on http://localhost:${port} [${caps.join(', ')}]`);
 });

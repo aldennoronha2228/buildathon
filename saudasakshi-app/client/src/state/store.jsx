@@ -174,15 +174,6 @@ export function AppProvider({ children }) {
     []
   );
 
-  const verifyIntent = useCallback(
-    async (intentId) => {
-      const { agreement: updated } = await api.verifyPayment(intentId);
-      patchAgreement(updated);
-      refreshAlarms().catch(() => {});
-      return updated;
-    },
-    [patchAgreement, refreshAlarms]
-  );
 
   /** Live-Cashfree mode: poll the gateway for the intent's real settlement status. */
   const checkPaymentStatus = useCallback(
@@ -257,23 +248,6 @@ export function AppProvider({ children }) {
     return saved;
   }, []);
 
-  const resetDemo = useCallback(async () => {
-    await api.resetDemo();
-    const [list, alarmData, profileData] = await Promise.all([
-      api.listAgreements(),
-      api.listAlarms(),
-      api.getSettings(),
-    ]);
-    setAgreements(list);
-    setAlarms(alarmData);
-    setProfile(profileData);
-    setDraftId(null);
-    setStep(1);
-    setUnlocked(1);
-    setStage('ADVANCE');
-    setBannerId(null);
-    setDismissedBanners(new Set());
-  }, []);
 
   /* ------------------------------- modal ------------------------------- */
 
@@ -331,7 +305,6 @@ export function AppProvider({ children }) {
     proceedToPayment,
     openBalanceGateway,
     createIntent,
-    verifyIntent,
     checkPaymentStatus,
     snooze,
     toggleAlarm,
@@ -339,7 +312,6 @@ export function AppProvider({ children }) {
     saveAndReset,
     openGatewayFromHistory,
     saveSettings,
-    resetDemo,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

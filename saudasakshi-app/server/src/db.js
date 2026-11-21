@@ -124,83 +124,6 @@ function rowToAgreement(row) {
   };
 }
 
-/* -------------------------------- seed -------------------------------- */
-
-export function seedIfEmpty() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM agreements').get().n;
-  if (count > 0) return;
-
-  const today = now().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-  const seeds = [
-    {
-      id: 'SS-8492', seq: 8492, customer_name: 'Suresh Pai',
-      service: 'Kitchen Wiring & MCB Upgrade',
-      service_regional: 'ಅಡುಗೆಮನೆ ವೈರಿಂಗ್ ಮತ್ತು ಎಂಸಿಬಿ ಅಪ್‌ಗ್ರೇಡ್',
-      language: 'ಕನ್ನಡ (Kannada)', lang_code: 'kn',
-      total: 8000, advance: 2000, balance: 6000, status: 'ADVANCE_PAID',
-      condition_text: buildCondition(2000, 6000),
-      due_date: today, reminder_time: '10:00', alarm_enabled: 1,
-      link_id: 'cf_link_sauda_8492',
-      contractor_confirmed_at: 'Today, verified', customer_confirmed_at: 'Today, verified',
-    },
-    {
-      id: 'SS-8471', seq: 8471, customer_name: 'Meera Shetty',
-      service: 'Bathroom Plumbing Leak Fix',
-      service_regional: 'बाथरूम प्लंबिंग लीक फिक्स',
-      language: 'हिंदी (Hindi)', lang_code: 'hi',
-      total: 3500, advance: 1000, balance: 2500, status: 'COMPLETED',
-      condition_text: buildCondition(1000, 2500),
-      due_date: yesterday, reminder_time: '09:30', alarm_enabled: 0,
-      link_id: 'cf_link_sauda_8471',
-      contractor_confirmed_at: 'Yesterday, verified', customer_confirmed_at: 'Yesterday, verified',
-    },
-    {
-      id: 'SS-8459', seq: 8459, customer_name: 'Prakash Rao',
-      service: 'Inverter Battery Installation',
-      service_regional: 'இன்வர்ட்டர் பேட்டரி நிறுவல்',
-      language: 'தமிழ் (Tamil)', lang_code: 'ta',
-      total: 12000, advance: 4000, balance: 8000, status: 'PENDING',
-      condition_text: buildCondition(4000, 8000),
-      due_date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
-      reminder_time: '11:00', alarm_enabled: 1,
-      link_id: 'cf_link_sauda_8459',
-      contractor_confirmed_at: null, customer_confirmed_at: null,
-    },
-  ];
-
-  const insertAll = db.transaction((rows) => {
-    rows.forEach((r) =>
-      insertAgreement({
-        created_at: now(),
-        updated_at: now(),
-        ...r,
-      })
-    );
-  });
-  insertAll(seeds);
-
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('next_seq', '8505') ON CONFLICT(key) DO NOTHING"
-  ).run();
-
-  db.prepare(
-    "INSERT INTO settings (key, value) VALUES ('profile', ?) ON CONFLICT(key) DO NOTHING"
-  ).run(
-    JSON.stringify({
-      name: 'Ramesh Kumar',
-      business: 'Ramesh Electricals',
-      phone: '+91 98450 21490',
-      city: 'Udupi',
-      upi: 'ramesh.elec@okaxis',
-      autoReceipt: true,
-      autoDetectVoice: true,
-      alwaysBilingual: true,
-    })
-  );
-}
-
 /* ------------------------------ queries ------------------------------ */
 
 export function listAgreements() {
@@ -399,10 +322,6 @@ export function markIntentPaid(intentId) {
   return { intent: intentRowToApi(db.prepare('SELECT * FROM payment_intents WHERE id = ?').get(intentId)), agreement: getAgreement(intent.agreement_id), alreadyPaid: false };
 }
 
-export function verifyPaymentIntent(intentId) {
-  return markIntentPaid(intentId);
-}
-
 export function snoozeAlarm(id) {
   const row = db.prepare('SELECT * FROM agreements WHERE id = ?').get(id);
   if (!row) throw Object.assign(new Error('Agreement not found'), { status: 404 });
@@ -440,11 +359,6 @@ export function putSettings(profile) {
   return getSettings();
 }
 
-export function resetAll() {
-  db.exec('DELETE FROM payment_intents; DELETE FROM agreements; DELETE FROM settings;');
-  db.prepare("DELETE FROM meta WHERE key = 'next_seq'").run();
-  seedIfEmpty();
-}
 
 /* --------------------------- small utilities --------------------------- */
 
@@ -452,7 +366,7 @@ function parseAmountsSafe(text) {
   const amounts = parseAmounts(text);
   if (!amounts || amounts.total <= 0)
     throw Object.assign(
-      new Error('Could not detect an amount. Mention a value like ₹8,000 in your agreement.'),
+      new Error('Could not detect an amount. Mention a value like â‚¹8,000 in your agreement.'),
       { status: 422 }
     );
   return amounts;
@@ -473,9 +387,9 @@ function validTime(v) {
 }
 
 const LANG_LABELS = {
-  kn: 'ಕನ್ನಡ (Kannada)',
-  hi: 'हिंदी (Hindi)',
-  ta: 'தமிழ் (Tamil)',
+  kn: 'à²•à²¨à³à²¨à²¡ (Kannada)',
+  hi: 'à¤¹à¤¿à¤‚à¤¦à¥€ (Hindi)',
+  ta: 'à®¤à®®à®¿à®´à¯ (Tamil)',
   en: 'English (India)',
 };
 function langLabel(code) {

@@ -121,7 +121,7 @@ export default function Sidebar() {
           <button
             onClick={() => {
               setSidebarOpen(false);
-              pushToast('Demo session active (Sign out disabled in MVP)');
+              pushToast('Sign out is not configured');
             }}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-[#A1A1AA] hover:text-white transition-colors"
           >

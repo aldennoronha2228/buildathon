@@ -9,7 +9,6 @@ export default function PayStep() {
     stage,
     setStage,
     createIntent,
-    verifyIntent,
     checkPaymentStatus,
     openBalanceGateway,
     toggleAlarm,
@@ -55,24 +54,12 @@ export default function PayStep() {
     if (!intent || verifying || completed) return;
     setVerifying(true);
     try {
-      if (livePay) {
-        // Cashfree live: poll the real gateway for settlement
-        const data = await checkPaymentStatus(intent.id);
-        if (data.status === 'PAID') {
-          pushToast('Payment received! Cashfree confirmed the settlement.');
-        } else {
-          setPollStatus(data.status);
-          pushToast(`Payment status: ${data.status}. Auto-checking every few seconds…`);
-        }
+      const data = await checkPaymentStatus(intent.id);
+      if (data.status === 'PAID') {
+        pushToast('Payment received! Cashfree confirmed the settlement.');
       } else {
-        // Mock mode: simulated gateway round-trip latency
-        await new Promise((r) => setTimeout(r, 850));
-        const updated = await verifyIntent(intent.id);
-        pushToast(
-          updated.status === 'COMPLETED'
-            ? 'Complete payment verified! Agreement settled.'
-            : 'Advance paid! Balance alarm active.'
-        );
+        setPollStatus(data.status);
+        pushToast(`Payment status: ${data.status}. Auto-checking every few seconds?`);
       }
     } catch (err) {
       pushToast(err.message);
@@ -106,7 +93,8 @@ export default function PayStep() {
 
   const onCopy = async () => {
     if (!intent) return;
-    const link = `https://payments.cashfree.com/links/${draft.id.toLowerCase()}${isBalanceStage ? '-bal' : ''}`;
+    const link = intent?.linkUrl;
+    if (!link) return;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(link);
@@ -124,8 +112,7 @@ export default function PayStep() {
   };
 
   const pill = pillFor(draft.status);
-  const mockLink = `https://payments.cashfree.com/links/${draft.id.toLowerCase()}${isBalanceStage ? '-bal' : ''}`;
-  const link = livePay ? intent.linkUrl : mockLink;
+  const link = livePay ? intent.linkUrl : ''; 
 
   return (
     <div className="flex-1 flex flex-col justify-between screen-animate">
@@ -282,12 +269,13 @@ export default function PayStep() {
               </span>
             </div>
 
-            <div className="p-3 bg-white rounded-xl shadow-md">
-              <QrCode />
-            </div>
-            <p className="text-[11px] text-[#A1A1AA] mt-4">Scan with any UPI app or share link below</p>
+            {livePay ? (
+              <p className="text-[11px] text-[#A1A1AA] mt-2">Use the secure Cashfree payment link.</p>
+            ) : (
+              <p className="text-sm text-zinc-400 py-6">Cashfree is not connected. Configure gateway credentials to accept payments.</p>
+            )}
 
-            <div className="w-full mt-5 flex items-center gap-2 bg-[#09090B] border border-[#27272A] rounded-xl p-2 pl-3">
+            {livePay && <div className="w-full mt-5 flex items-center gap-2 bg-[#09090B] border border-[#27272A] rounded-xl p-2 pl-3">
               <input
                 id="cashfree-link-input"
                 type="text"
@@ -311,7 +299,7 @@ export default function PayStep() {
               >
                 {copied ? 'Copied!' : 'Copy'}
               </button>
-            </div>
+            </div>}
 
             {intentBusy && <p className="text-[11px] text-[#A1A1AA] mt-3">Creating payment intent…</p>}
             {intent && !intentBusy && (
@@ -336,7 +324,7 @@ export default function PayStep() {
         ) : (
           <button
             onClick={onVerify}
-            disabled={!intent || verifying}
+            disabled={!livePay || !intent || verifying}
             className="w-full py-3.5 px-5 rounded-xl bg-white text-[#09090B] font-semibold text-sm flex items-center justify-center gap-2 transition-all hover:bg-zinc-200 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <svg className={`w-4 h-4 animate-spin text-[#09090B] ${verifying ? '' : 'hidden'}`} viewBox="0 0 24 24" fill="none">
@@ -344,13 +332,7 @@ export default function PayStep() {
               <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
             </svg>
             <span>
-              {verifying
-                ? 'Checking Cashfree status...'
-                : livePay
-                  ? `I've Paid — Check Status (${formatINR(amount)})`
-                  : isBalanceStage
-                    ? `Verify / Simulate Complete Payment (${formatINR(amount)})`
-                    : `Verify / Simulate Advance (${formatINR(amount)})`}
+              {verifying ? 'Checking Cashfree status...' : livePay ? `I've Paid ? Check Status (${formatINR(amount)})` : 'Cashfree is not connected'}
             </span>
           </button>
         )}
@@ -396,19 +378,6 @@ function Milestone({ label, cls, textCls, value }) {
       <span className="text-[10px] uppercase tracking-wider text-[#A1A1AA]">{label}</span>
       <div className={`text-xs font-semibold mt-1 ${textCls}`}>{value}</div>
     </div>
-  );
-}
-
-function QrCode() {
-  // Decorative static QR placeholder (mock gateway)
-  return (
-    <svg width="136" height="136" viewBox="0 0 29 29" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Cashfree Payment QR Code">
-      <rect width="29" height="29" fill="#FFFFFF" />
-      <path fill="#09090B" d="M1 1h7v7H1V1zm1 1v5h5V2H2zm1 1h3v3H3V3z" />
-      <path fill="#09090B" d="M21 1h7v7h-7V1zm1 1v5h5V2h-5zm1 1h3v3h-3V3z" />
-      <path fill="#09090B" d="M1 21h7v7H1v-7zm1 1v5h5v-5H2zm1 1h3v3H3v-3z" />
-      <path fill="#09090B" d="M10 1h2v1h-2V1zm4 0h1v2h-1V1zm3 0h2v1h-2V1zM10 3h1v2h-1V3zm3 1h3v1h-3V4zm5 0h1v3h-1V4zM10 6h2v2h-2V6zm4 0h2v1h-2V6zm3 2h2v1h-2V8zM1 10h2v2H1v-2zm4 0h3v1H5v-1zm5 0h2v3h-2v-3zm4 0h2v2h-2v-2zm4 0h3v1h-3v-1zm5 0h2v2h-2v-2zm3 0h2v3h-2v-3zM2 13h2v2H2v-2zm4 0h2v3H6v-3zm5 1h3v2h-3v-2zm5-1h2v3h-2v-3zm4 1h2v2h-2v-2zm5 0h2v2h-2v-2zm3 0h2v3h-2v-3zM1 16h3v1H1v-1zm4 1h2v2H5v-2zm4-1h2v3H9v-3zm4 1h3v2h-3v-2zm5 0h2v2h-2v-2zm4-1h2v3h-2v-3zm4 1h2v2h-2v-2zM10 20h2v2h-2v-2zm4 0h2v1h-2v-1zm4 0h3v2h-3v-2zm5 0h2v2h-2v-2zM10 23h3v2h-3v-2zm5-1h2v3h-2v-3zm4 1h2v2h-2v-2zm4 0h4v2h-4v-2zM10 26h2v2h-2v-2zm4 0h3v2h-3v-2zm5 0h2v2h-2v-2zm4 0h2v2h-2v-2zm3 0h2v2h-2v-2z" />
-    </svg>
   );
 }
 

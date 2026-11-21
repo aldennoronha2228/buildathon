@@ -59,7 +59,7 @@ Return ONLY a JSON object with this exact shape (no markdown, no explanation):
 Rules:
 - Amounts are usually stated with ₹ or numbers; "advance/upfront/ಮುಂಗಡ/एडवांस/முன்பணம்" marks the advance, "balance/remaining/ಬಾಕಿ/बाकी/மீதி" marks the rest.
 - advance must be <= total. If only one amount is mentioned, treat it as total and set advance to 25% of it (rounded).
-- customer_name: include ONLY when the speaker names the customer (e.g. "for Ramesh", "Suresh Pai's house"). Use the name as spoken; never invent one.
+- customer_name: include only when the speaker names the customer. Use the name as spoken; never invent one.
 - due_date: include ONLY when an explicit calendar date (e.g. "25 November", "ನವೆಂಬರ್ 25") is spoken. Relative phrases like "after work" or "next week" stay null. Format YYYY-MM-DD, year = current year unless stated.
 - If you cannot find any amount, return {"error": "no_amount"}.`;
 

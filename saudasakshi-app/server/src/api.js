@@ -12,7 +12,6 @@ import {
   listAlarms,
   getSettings,
   putSettings,
-  resetAll,
 } from './db.js';
 import { sarvamSttEnabled, sarvamLlmEnabled, transcribeAudio } from './services/sarvam.js';
 import { cashfreeEnabled, createPaymentLink, getPaymentLinkStatus } from './services/cashfree.js';
@@ -69,7 +68,8 @@ apiRouter.post('/agreements/:id/snooze', wrap((req) => snoozeAlarm(req.params.id
 /**
  * Create a payment intent for a milestone.
  * Cashfree live mode → creates a real Payment Link and stores it on the intent.
- * Otherwise → mock intent that can be settled via the verify (simulate) route.
+ *
+ * Payment links require Cashfree configuration.
  */
 apiRouter.post('/agreements/:id/payments', wrapAsync(async (req) => {
   const stage = req.body?.stage;
@@ -98,10 +98,10 @@ apiRouter.post('/agreements/:id/payments', wrapAsync(async (req) => {
     return createPaymentIntent(req.params.id, stage, { linkId: link.linkId, linkUrl: link.url });
   }
 
-  return createPaymentIntent(req.params.id, stage);
+  throw Object.assign(new Error('Cashfree is not configured'), { status: 503 });
 }));
 
-/** Poll a payment intent's real gateway status (no-op in mock mode). */
+/** Poll a payment intent's Cashfree gateway status. */
 apiRouter.get('/payments/:intentId/status', wrapAsync(async (req) => {
   const intent = getIntent(req.params.intentId);
   if (!intent) throw Object.assign(new Error('Payment intent not found'), { status: 404 });
@@ -121,20 +121,6 @@ apiRouter.get('/payments/:intentId/status', wrapAsync(async (req) => {
   return { status, agreement: getAgreement(intent.agreementId) };
 }));
 
-/**
- * Simulate a gateway settlement — only available in mock mode (no Cashfree keys).
- * With Cashfree live, settlement happens through real webhooks/status polling.
- */
-apiRouter.post('/payments/:intentId/verify', wrap((req) => {
-  const intent = getIntent(req.params.intentId);
-  if (!intent) throw Object.assign(new Error('Payment intent not found'), { status: 404 });
-  if (cashfreeEnabled() && intent.linkId)
-    throw Object.assign(
-      new Error('Cashfree live mode: settlement arrives via webhook or status polling'),
-      { status: 409 }
-    );
-  return markIntentPaid(req.params.intentId);
-}));
 
 /**
  * Sarvam STT proxy: the browser posts raw recorded audio; we forward it to Sarvam
@@ -157,11 +143,11 @@ apiRouter.get('/settings', wrap(() => getSettings()));
 apiRouter.put('/settings', wrap((req) => {
   const p = req.body || {};
   const profile = {
-    name: String(p.name || '').trim() || 'Ramesh Kumar',
-    business: String(p.business || '').trim() || 'Ramesh Electricals',
-    phone: String(p.phone || '').trim() || '+91 98450 21490',
-    city: String(p.city || '').trim() || 'Udupi',
-    upi: String(p.upi || '').trim() || 'ramesh.elec@okaxis',
+    name: String(p.name || '').trim(),
+    business: String(p.business || '').trim(),
+    phone: String(p.phone || '').trim(),
+    city: String(p.city || '').trim(),
+    upi: String(p.upi || '').trim(),
     autoReceipt: !!p.autoReceipt,
     autoDetectVoice: !!p.autoDetectVoice,
     alwaysBilingual: !!p.alwaysBilingual,
@@ -169,8 +155,3 @@ apiRouter.put('/settings', wrap((req) => {
   return putSettings(profile);
 }));
 
-// Demo helper: wipe and reseed local data
-apiRouter.post('/reset', wrap(() => {
-  resetAll();
-  return { ok: true };
-}));

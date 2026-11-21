@@ -1,6 +1,6 @@
 # SaudaSakshi — From Verbal Agreements to Verified Payments
 
-A mobile-first web app that turns spoken verbal work agreements into structured, verified payment contracts — with advance/balance milestones, Cashfree-style payment gateway simulation, and balance-due alarms.
+A mobile-first web app that turns spoken verbal work agreements into structured, verified payment contracts — with advance/balance milestones, Cashfree payment links, and balance-due alarms.
 
 ## Stack
 
@@ -19,11 +19,11 @@ saudasakshi-app/
 │       ├── components/  # Shell, Sidebar, Header, modals, banner, toast
 │       ├── screens/     # VoiceStep, ConfirmStep, PayStep, History, Settings
 │       ├── state/       # App-wide context store
-│       └── lib/         # Formatting, demo scenarios, language detection
+│       └── lib/         # Formatting, language detection
 ├── server/            # Express API + static file server
 │   └── src/
 │       ├── api.js       # REST routes
-│       ├── db.js        # SQLite schema, seed data, queries
+│       ├── db.js        # SQLite schema, queries
 │       └── lib/parse.js # Amount parsing + Unicode language detection
 └── Dockerfile
 ```
@@ -57,21 +57,19 @@ Open http://localhost:8080 (production) or http://localhost:5173 (dev).
 | PATCH  | `/api/agreements/:id` | Edit terms / alarm settings (resets confirmations on term edits) |
 | POST   | `/api/agreements/:id/confirm` | Dual-party confirmation (`{party: "contractor"|"customer"}`) |
 | POST   | `/api/agreements/:id/payments` | Create payment intent (`{stage: "ADVANCE"|"BALANCE"}`) |
-| POST   | `/api/payments/:intentId/verify` | Simulate gateway callback → marks paid, updates milestones |
 | POST   | `/api/agreements/:id/snooze` | Snooze alarm by +1 day |
 | GET    | `/api/alarms` | Pending balance alarms (+ `dueToday`) |
 | GET/PUT| `/api/settings` | Business profile & voice preferences |
-| POST   | `/api/reset` | Reset DB to seed data (demo helper) |
 
 ## Integrations: Sarvam AI + Cashfree
 
-The app runs in **demo mode** with no keys, and automatically switches to **live mode** when keys are present. Copy `.env.example` → `.env` (or set env vars in your host) and restart. All third-party keys are used **server-side only** — the browser never sees them.
+Voice transcription requires a Sarvam API key. Payment links require Cashfree credentials. Copy `.env.example` → `.env` (or set env vars in your host) and restart. All third-party keys are used **server-side only** — the browser never sees them.
 
 ### Sarvam AI — speech-to-text + LLM term extraction
 
 | Env var | Default | Effect |
 |---|---|---|
-| `SARVAM_API_KEY` | — | Master switch. When set: real mic → `POST /api/transcribe` → Sarvam STT; transcripts are structured by Sarvam LLM. When empty: scripted demo transcripts + regex parsing. |
+| `SARVAM_API_KEY` | — | Master switch. When set: real mic → `POST /api/transcribe` → Sarvam STT; transcripts are structured by Sarvam LLM. When empty: voice transcription is unavailable; agreement details can be entered manually. |
 | `SARVAM_STT_MODEL` | `saarika:v2.5` | STT model (multilingual kn/hi/ta/en) |
 | `SARVAM_LLM_MODEL` | `sarvam-m` | Chat model used for term extraction |
 | `SARVAM_BASE` | `https://api.sarvam.ai` | API base URL |
@@ -133,5 +131,5 @@ Deploy `client/` as a static site (`npm run build` → `client/dist`), and `serv
 
 ## Notes
 
-- SQLite DB lives at `server/data/saudasakshi.db` (auto-created and seeded with 3 demo agreements on first boot). Delete the file for a factory reset, or use **Settings → Reset Demo Data**.
+- SQLite DB lives at `server/data/saudasakshi.db` (created with an empty agreements list). Delete the file for a factory reset.
 - Monochrome design language: white = verified/paid, dim zinc outline = pending. No status colors.

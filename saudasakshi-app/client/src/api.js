@@ -30,8 +30,6 @@ export const api = {
   snoozeAlarm: (id) => request(`/agreements/${encodeURIComponent(id)}/snooze`, { method: 'POST' }),
   createPayment: (id, stage) =>
     request(`/agreements/${encodeURIComponent(id)}/payments`, { method: 'POST', body: { stage } }),
-  verifyPayment: (intentId) =>
-    request(`/payments/${encodeURIComponent(intentId)}/verify`, { method: 'POST' }),
   checkPaymentStatus: (intentId) => request(`/payments/${encodeURIComponent(intentId)}/status`),
   transcribe: async (blob) => {
     const res = await fetch('/api/transcribe', { method: 'POST', body: blob });
@@ -47,5 +45,4 @@ export const api = {
   listAlarms: () => request('/alarms'),
   getSettings: () => request('/settings'),
   saveSettings: (profile) => request('/settings', { method: 'PUT', body: profile }),
-  resetDemo: () => request('/reset', { method: 'POST' }),
 };
