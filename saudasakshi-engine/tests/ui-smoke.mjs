@@ -20,7 +20,12 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+page.on("console", (m) => {
+  if (m.type() !== "error") return;
+  // GET /providers/me -> 404 is the documented "no provider profile yet".
+  if (/status of 404/.test(m.text())) return;
+  errors.push(m.text());
+});
 
 // Capture every request so we can assert the identity headers go out.
 const apiCalls = [];
@@ -40,6 +45,17 @@ ok("form hidden before sign-in", !(await page.locator("#app").isVisible()));
 ok("'Your user ID' field present", (await page.locator("#uid").count()) === 1);
 ok("display name field is optional", (await page.locator("#uname").getAttribute("required")) === null);
 
+// --- provider sign-up card on the landing page
+ok("'Join as service provider' card on the landing page", /Join as service provider/.test(await page.locator("#providerCard").innerText()));
+ok("provider card is visible before sign-in", await page.locator("#providerCard").isVisible());
+ok("provider form asks for a user ID", (await page.locator("#p-uid").count()) === 1);
+ok("provider form asks for full name, phone, account, IFSC, work type",
+  (await page.locator("#p-name").count()) === 1 && (await page.locator("#p-phone").count()) === 1 &&
+  (await page.locator("#p-account").count()) === 1 && (await page.locator("#p-ifsc").count()) === 1 &&
+  (await page.locator("#p-work").count()) === 1);
+const hint = await page.locator("#provider-hint").innerText();
+ok("sandbox test values hint shown", hint.includes("026291800001191") && hint.includes("YESB0000262"), hint.replace(/\n/g, " ").slice(0, 90));
+
 await page.fill("#uid", UID);
 await page.fill("#uname", NAME);
 await page.click("#signinForm button[type=submit]");
@@ -52,11 +68,47 @@ const stored = await page.evaluate(() => ({
   uid: localStorage.getItem('saudasakshi.uid'),
   name: localStorage.getItem('saudasakshi.name'),
 }));
-ok("user ID saved to localStorage", stored.uid === UID && stored.name === NAME, JSON.stringify(stored));
+ok("identity is NOT written to localStorage", stored.uid === null && stored.name === null, JSON.stringify(stored));
 
-// reload: identity persists
+// reload: identity is asked again (in-memory only)
 await page.reload({ waitUntil: "networkidle" });
-ok("identity survives reload", await page.locator("#app").isVisible() && !(await page.locator("#signinCard").isVisible()));
+ok("identity is asked again after reload", await page.locator("#signinCard").isVisible() && !(await page.locator("#app").isVisible()));
+
+// --- provider bank check, real Cashfree Secure ID call
+await page.fill("#p-uid", UID);
+await page.fill("#p-name", "Ramesh Kumar");
+await page.fill("#p-phone", "9876543210");
+await page.click("#fill-test");
+await page.selectOption("#p-work", "physical");
+await page.click("#p-submit");
+await page.waitForSelector("#providerResult:not(.hidden)", { timeout: 30000 });
+const provResult = await page.locator("#providerResult").innerText();
+ok("provider result panel shown", provResult.length > 20, provResult.replace(/\n/g, " ").slice(0, 100));
+ok("result is one of green verified / red mismatch / amber not-checked-or-unavailable",
+  /bank verified/i.test(provResult) ||
+    /bank check failed/i.test(provResult) ||
+    /name not checked/i.test(provResult) ||
+    /bank check unavailable \(sandbox\)/i.test(provResult),
+  provResult.replace(/\n/g, " ").slice(0, 110));
+ok("an amber result never claims the name matched",
+  !/name not checked/i.test(provResult) || !/name match\s*YES/i.test(provResult),
+  provResult.replace(/\n/g, " ").slice(0, 110));
+ok("result never shows the full account number", !provResult.includes("026291800001191"));
+ok("amber result shows only the masked account", !/unavailable|not checked/i.test(provResult) || /••••1191/.test(provResult), provResult.replace(/\n/g, " ").slice(0, 140));
+
+await page.reload({ waitUntil: "networkidle" });
+ok("provider result is re-fetched after reload once signed in", !(await page.locator("#providerResult").isVisible()));
+
+await page.fill("#uid", UID);
+await page.fill("#uname", NAME);
+await page.click("#signinForm button[type=submit]");
+await page.waitForSelector("#app:not(.hidden)", { timeout: 10000 });
+await page.waitForSelector("#providerResult:not(.hidden)", { timeout: 30000 }).catch(() => {});
+ok(
+  "saved provider record loads on sign-in",
+  (await page.locator("#providerResult").isVisible()) && (await page.locator("#providerResult").innerText()).length > 20,
+  ((await page.locator("#providerResult").innerText().catch(() => "")) || "").replace(/\n/g, " ").slice(0, 80)
+);
 
 ok("textarea present", await page.locator("#transcript").isVisible());
 ok("my role toggle present", (await page.locator(".rolebtn").count()) === 2);
@@ -85,8 +137,16 @@ ok("writer shown", /writer:\s*sarvam-105b|writer:\s*grokbot/.test(body));
 ok("parties rendered", body.includes("Ramesh") && body.includes("Anil"));
 ok("escrow box", /held in escrow, released when/.test(body));
 ok("₹ amount formatted", /₹\s?60,000/.test(body));
+
+// --- escrow payment link for the client
+const payBtnSel = '#result a[href*="cashfree.com/links/"]';
+ok("client sees the 'Pay ₹X into escrow' action", (await page.locator(payBtnSel).count()) === 1);
+const payLink = await page.locator(payBtnSel).first().getAttribute("href");
+ok("pay button opens the Cashfree sandbox link", /^https:\/\/[a-z.-]*cashfree\.com\/links\//.test(payLink || ""), String(payLink).slice(0, 60));
+ok("pay button labels the amount", /Pay ₹\s?60,000 into escrow/.test(body));
+ok("no full bank account rendered", !body.includes("026291800001191"));
 const termsText = await page.locator("#result").innerText();
-const deadlineCell = (await page.locator("#result").innerText()).match(/Deadline\s*\n?\s*([^\n]{0,120})/)?.[1] || "";
+const deadlineCell = (await page.locator("#result").innerText()).match(/Deadline\s*\n?\s*([^\n]{0,120})/i)?.[1] || "";
 ok(
   "deadline rendered from transcript",
   /(10|ten)/i.test(deadlineCell) && !/Not stated/i.test(deadlineCell),
@@ -112,8 +172,18 @@ ok("reasoning list expands", (await page.locator("#result details ul li").count(
 // --- accept button for the signed-in party
 const accept = page.locator("#accept");
 ok("Accept button offered to the signed-in client", (await accept.count()) === 1 && /Accept as client/.test(await accept.innerText()));
+const acceptDone = page.waitForResponse(
+  (r) => r.url().includes("/accept") && r.request().method() === "POST",
+  { timeout: 30000 }
+);
 await accept.click();
-await page.waitForTimeout(1200);
+const acceptRes = await acceptDone;
+ok("accept POST succeeded", acceptRes.status() === 200, String(acceptRes.status()));
+await page.waitForFunction(
+  () => /You accepted/i.test(document.querySelector("#result")?.innerText || ""),
+  null,
+  { timeout: 30000 }
+);
 const afterAccept = await page.locator("#result").innerText();
 ok("client acceptance recorded in UI", /You accepted/.test(afterAccept));
 ok("still says waiting for the provider", /Waiting for the provider/.test(afterAccept));
@@ -147,11 +217,27 @@ ok("accept POST sent", accepts.length >= 1, `${accepts.length}`);
 
 await page.screenshot({ path: "/tmp/shot/result.png", fullPage: true });
 
+// --- provider view: waiting for the client to fund escrow
+const agreementId = await page.locator("#listBody [data-open]").first().getAttribute("data-open");
+await page.click("#signout");
+await page.waitForTimeout(300);
+await page.fill("#uid", `${UID}-painter`);
+await page.fill("#uname", "Ramesh (provider)");
+await page.click("#signinForm button[type=submit]");
+await page.waitForSelector("#app:not(.hidden)", { timeout: 10000 });
+await page.evaluate((id) => openAgreement(id), agreementId);
+await page.waitForSelector("#result section", { timeout: 30000 });
+await page.waitForTimeout(400);
+const provView = await page.locator("#result").innerText();
+ok("provider sees 'Waiting for client to fund escrow'", /Waiting for client to fund escrow/i.test(provView));
+ok("provider does not get the Pay button", (await page.locator('#result a[href*="cashfree.com/links/"]').count()) === 0);
+ok("provider view shows the escrow amount", /₹\s?60,000/.test(provView));
+
 // --- sign out
 await page.click("#signout");
 await page.waitForTimeout(300);
 ok("Sign out returns to the sign-in card", await page.locator("#signinCard").isVisible() && !(await page.locator("#app").isVisible()));
-ok("Sign out clears localStorage", (await page.evaluate(() => localStorage.getItem('saudasakshi.uid'))) === null);
+ok("Sign out leaves nothing in localStorage", (await page.evaluate(() => localStorage.getItem('saudasakshi.uid'))) === null);
 
 ok("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 

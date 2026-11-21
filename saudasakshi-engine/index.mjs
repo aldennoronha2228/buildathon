@@ -6,10 +6,13 @@
  * GET  /agreements                    -> my agreements, newest first                        (X-User-Id required)
  * POST /agreements/{id}/accept        -> the signed-in party accepts                       (X-User-Id required)
  * POST /agreements/{id}/callback?t=   -> grokbot webhook callback (token auth, no user id)
- * GET  /agreements/{id}               -> {id, status, writer, agreement?} — parties only
- * POST /webhooks/cashfree             -> placeholder
+ * GET  /agreements/{id}               -> {id, status, writer, agreement?, payment?, provider_bank?}
+ * POST /providers                     -> Secure ID bank check + provider record            (X-User-Id required)
+ * GET  /providers/me                  -> caller's provider record, account masked         (X-User-Id required)
+ * GET  /agreements/{id}/payment       -> refresh the Cashfree payment link, PAID => in_escrow
+ * POST /webhooks/cashfree             -> Cashfree webhook (HMAC-SHA256 verified)
  */
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, createHmac, timingSafeEqual, publicEncrypt, constants } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   DynamoDBClient,
@@ -31,6 +34,24 @@ const GROKBOT_WEBHOOK_AUTH_HEADER =
 const SARVAM_API_KEY = process.env.SARVAM_API_KEY || "";
 const SARVAM_URL = "https://api.sarvam.ai/v1/chat/completions";
 const SARVAM_MODEL = "sarvam-105b";
+
+/* Cashfree — sandbox only. Secrets are read from env and never logged or returned. */
+const CASHFREE_ENV = (process.env.CASHFREE_ENV || "sandbox").toLowerCase();
+const CASHFREE_BASE =
+  CASHFREE_ENV === "production" || CASHFREE_ENV === "prod"
+    ? "https://api.cashfree.com"
+    : "https://sandbox.cashfree.com";
+const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || "";
+const CASHFREE_PG_SECRET = process.env.CASHFREE_PG_SECRET || "";
+// Secure ID (VRS) is a separate product with its own credentials. Fall back to the
+// PG keys only when no dedicated pair is configured.
+const CASHFREE_VRS_CLIENT_ID = process.env.CASHFREE_VRS_CLIENT_ID || CASHFREE_APP_ID;
+const CASHFREE_VRS_SECRET = process.env.CASHFREE_VRS_SECRET || CASHFREE_PG_SECRET;
+// Secure ID accounts commonly use Public Key 2FA, which requires an
+// x-cf-signature header on every call. With IP whitelisting instead, leave this unset.
+const CASHFREE_VRS_PUBLIC_KEY = (process.env.CASHFREE_VRS_PUBLIC_KEY || "").replace(/\\n/g, "\n").trim();
+const CASHFREE_API_VERSION = "2023-08-01";
+const CASHFREE_TIMEOUT_MS = 12000;
 
 const WRITER_GROKBOT = "grokbot";
 const WRITER_SARVAM = "sarvam-105b";
@@ -181,6 +202,8 @@ function listRow(item) {
   };
   if (item.creator_role?.S) row.creator_role = item.creator_role.S;
   if (agreement?.status) row.agreement_status = agreement.status;
+  const pay = paymentFor(item);
+  if (pay) row.payment_status = pay.status;
   return row;
 }
 
@@ -203,7 +226,7 @@ Rules:
 - Use only what is stated. Never invent. Missing value => null (or [] for lists), and add it to missing_terms.
 - Payment is FULL ESCROW, no advance. If an advance was demanded, put the full price in escrow and raise the advance as a missing_term.
 - money strings like "60 hazaar", "60k", "₹60,000" => 60000 (plain integer, no commas).
-- missing_terms question is written in the speakers' language (Hindi/Hinglish transcript => Hindi/Hinglish question).
+- every missing_terms question is written in Hindi only, in Devanagari script, whatever the transcript language.
 - agreement_text.en = complete plain-English agreement, numbered clauses (8-16 short clauses). agreement_text.local = the same deal in the transcript's local language (Devanagari for Hindi/Hinglish).
 - reasoning = short notes on where each fact came from and what you deliberately left out.
 - work_type: "physical" (painting, repair, carpentry, delivery), "professional" (CA, lawyer, consultant), "digital" (design, marketing, code).
@@ -258,8 +281,8 @@ function normalizeAgreement(raw, id) {
   const missing = asArray(a.missing_terms)
     .map((m) =>
       typeof m === "string"
-        ? { term: m, question: "Please confirm this term." }
-        : { term: asText(m?.term) || "unspecified term", question: asText(m?.question) || "Please confirm this term." }
+        ? { term: m, question: "कृपया इस शर्त की पुष्टि करें।" }
+        : { term: asText(m?.term) || "unspecified term", question: asText(m?.question) || "कृपया इस शर्त की पुष्टि करें।" }
     )
     .filter((m) => m.term);
 
@@ -395,9 +418,9 @@ function fallbackAgreement(transcript, id, reason) {
       if_late_or_disputed: null,
       refund_rule: null,
       missing_terms: [
-        { term: "scope", question: "Exactly what work is included? Please confirm." },
-        { term: "proof", question: "What proof will show the work is done? Please confirm." },
-        { term: "deadline", question: "By when should the work be finished? Please confirm." },
+        { term: "scope", question: "कौन-कौन सा काम शामिल है? कृपया पुष्टि करें।" },
+        { term: "proof", question: "काम पूरा होने का क्या सबूत होगा? कृपया पुष्टि करें।" },
+        { term: "deadline", question: "काम कब तक पूरा होना चाहिए? कृपया पुष्टि करें।" },
       ],
       agreement_text: {
         en: "Draft could not be generated automatically. The transcript has been saved. Please retry.",
@@ -475,6 +498,66 @@ function partiesSummary(item) {
   return { client_uid: client, provider_uid: provider };
 }
 
+async function transcribeAudio(event) {
+  const uid = (event.headers?.["x-user-id"] || event.headers?.["X-User-Id"] || "").trim();
+  if (!uid) return json(401, { error: "X-User-Id header is required" });
+  if (!SARVAM_API_KEY) return json(503, { error: "Sarvam is not configured" });
+  const body = readBody(event);
+  if (!body || typeof body.audio_base64 !== "string") return json(400, { error: "audio_base64 is required" });
+  const buf = Buffer.from(body.audio_base64, "base64");
+  if (buf.length < 1000) return json(400, { error: "recording too short" });
+  const form = new FormData();
+  form.append("file", new Blob([buf], { type: "audio/wav" }), "chunk.wav");
+  form.append("model", "saarika:v2.5");
+  form.append("language_code", "unknown");
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const res = await fetch("https://api.sarvam.ai/speech-to-text", {
+      method: "POST", headers: { "api-subscription-key": SARVAM_API_KEY }, body: form, signal: ctrl.signal,
+    });
+    const text = await res.text();
+    let out; try { out = JSON.parse(text); } catch { out = {}; }
+    if (!res.ok) {
+      console.log(JSON.stringify({ evt: "transcribe_failed", http: res.status, body: text.slice(0, 300) }));
+      return json(502, { error: "Sarvam could not transcribe this audio" });
+    }
+    console.log(JSON.stringify({ evt: "transcribed", bytes: buf.length, lang: out.language_code || null }));
+    return json(200, { transcript: out.transcript || "", language_code: out.language_code || null });
+  } catch (err) {
+    console.log(JSON.stringify({ evt: "transcribe_error", msg: String(err && err.message) }));
+    return json(502, { error: "Sarvam transcription timed out or failed" });
+  } finally { clearTimeout(t); }
+}
+
+async function speakText(event) {
+  const uid = (event.headers?.["x-user-id"] || event.headers?.["X-User-Id"] || "").trim();
+  if (!uid) return json(401, { error: "X-User-Id header is required" });
+  if (!SARVAM_API_KEY) return json(503, { error: "Sarvam is not configured" });
+  const body = readBody(event);
+  const text = body && typeof body.text === "string" ? body.text.slice(0, 500) : "";
+  if (!text.trim()) return json(400, { error: "text is required" });
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch("https://api.sarvam.ai/text-to-speech", {
+      method: "POST",
+      headers: { "api-subscription-key": SARVAM_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ text, target_language_code: "hi-IN", model: "bulbul:v3" }),
+      signal: ctrl.signal,
+    });
+    const raw = await res.text();
+    let out; try { out = JSON.parse(raw); } catch { out = {}; }
+    if (!res.ok || !out.audios || !out.audios[0]) {
+      console.log(JSON.stringify({ evt: "tts_failed", http: res.status, body: raw.slice(0, 300) }));
+      return json(502, { error: "Sarvam TTS failed" });
+    }
+    return json(200, { audio_base64: out.audios[0], mime: "audio/wav" });
+  } catch (err) {
+    return json(502, { error: "Sarvam TTS timed out" });
+  } finally { clearTimeout(t); }
+}
+
 function readBody(event) {
   if (event.body == null) return null;
   const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
@@ -495,6 +578,454 @@ function originFor(event) {
     "";
   if (host) return `${proto}://${host}`;
   return (process.env.FUNCTION_URL || "").replace(/\/+$/, "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Cashfree (sandbox)                                                  */
+/* ------------------------------------------------------------------ */
+
+// Cashfree Secure ID 2FA (Public Key method): base64(RSA-OAEP-SHA1("<clientId>.<unixSeconds>")).
+// Returns null when no public key is configured (IP-whitelist accounts).
+function cashfreeSignature() {
+  if (!CASHFREE_VRS_PUBLIC_KEY) return null;
+  try {
+    return publicEncrypt(
+      {
+        key: CASHFREE_VRS_PUBLIC_KEY,
+        padding: constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: "sha1",
+      },
+      Buffer.from(`${CASHFREE_VRS_CLIENT_ID}.${Math.floor(Date.now() / 1000)}`)
+    ).toString("base64");
+  } catch (err) {
+    console.error(JSON.stringify({ evt: "cashfree_signature_failed", error: String(err?.message || err) }));
+    return null;
+  }
+}
+
+// One HTTP call to Cashfree. Never logs headers or bodies that carry secrets.
+async function cashfreeFetch(path, { method = "GET", body, product = "pg" } = {}) {
+  const clientId = product === "vrs" ? CASHFREE_VRS_CLIENT_ID : CASHFREE_APP_ID;
+  const secret = product === "vrs" ? CASHFREE_VRS_SECRET : CASHFREE_PG_SECRET;
+  const headers = {
+    "content-type": "application/json",
+    "x-client-id": clientId,
+    "x-client-secret": secret,
+    "x-api-version": CASHFREE_API_VERSION,
+  };
+  // Secure ID with Public Key 2FA rejects calls without this header.
+  if (product === "vrs") {
+    const sig = cashfreeSignature();
+    if (sig) headers["x-cf-signature"] = sig;
+  }
+  const res = await fetch(CASHFREE_BASE + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(CASHFREE_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  let parsed = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
+  return { ok: res.ok, status: res.status, body: parsed, text };
+}
+
+const cashfreeMessage = (r, fallback) => {
+  const b = r?.body;
+  const msg =
+    (b && (b.message || b.error?.message || b.detail)) ||
+    (typeof r?.text === "string" ? r.text.slice(0, 300) : "") ||
+    fallback;
+  return String(msg).slice(0, 300);
+};
+
+// Only the last 4 digits ever leave the server.
+const last4 = (acct) => String(acct || "").replace(/\s+/g, "").slice(-4);
+const maskAccount = (acct) => {
+  const l4 = last4(acct);
+  return l4 ? `••••${l4}` : null;
+};
+
+const PROVIDER_PREFIX = "provider#";
+const providerId = (uid) => PROVIDER_PREFIX + uid;
+
+async function getProvider(uid) {
+  if (!uid) return null;
+  const item = await getItem(providerId(uid));
+  if (!item || item.entity?.S !== "provider") return null;
+  return item;
+}
+
+function providerPublic(item) {
+  if (!item) return null;
+  const out = {
+    uid: item.uid?.S || null,
+    full_name: item.full_name?.S || null,
+    phone: item.phone?.S || null,
+    work_type: item.work_type?.S || null,
+    ifsc: item.ifsc?.S || null,
+    bank_account_masked: item.bank_account_masked?.S || null,
+    bank_account_last4: item.bank_account_last4?.S || null,
+    verified: item.verified?.BOOL === true,
+    verification_status: item.verification_status?.S || "unknown",
+    name_at_bank: item.name_at_bank?.S || null,
+    name_match_result: item.name_match_result?.S || null,
+    name_match_score: item.name_match_score?.N ? Number(item.name_match_score.N) : null,
+    account_status: item.account_status?.S || null,
+    message: item.cashfree_message?.S || null,
+    created_at: item.created_at?.S || null,
+    updated_at: item.updated_at?.S || null,
+  };
+  return out;
+}
+
+// Short badge shape attached to an agreement when the provider has a record.
+function providerBadge(item) {
+  if (!item) return null;
+  return {
+    verified: item.verified?.BOOL === true,
+    verification_status: item.verification_status?.S || "unknown",
+    name_at_bank: item.name_at_bank?.S || null,
+    name_match_result: item.name_match_result?.S || null,
+    bank_account_masked: item.bank_account_masked?.S || null,
+  };
+}
+
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const WORK_TYPES = ["physical", "professional", "digital"];
+
+function cleanPhone(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  const local = digits.length > 10 && digits.startsWith("91") ? digits.slice(-10) : digits;
+  return local.length === 10 ? local : null;
+}
+
+function cleanAccount(value) {
+  const digits = String(value ?? "").replace(/\s+/g, "");
+  return /^[0-9]{9,18}$/.test(digits) ? digits : null;
+}
+
+// Cashfree Secure ID: POST /verification/bank-account/sync
+// Returns a normalised verdict. Any Cashfree failure is surfaced as
+// verification_unavailable with their own message — never a fake success.
+async function verifyBankAccount({ account, ifsc, name, phone }) {
+  let res;
+  try {
+    res = await cashfreeFetch("/verification/bank-account/sync", {
+      method: "POST",
+      product: "vrs",
+      body: { bank_account: account, ifsc, name, phone },
+    });
+  } catch (err) {
+    return {
+      verified: false,
+      verification_status: "verification_unavailable",
+      message: `Secure ID unreachable: ${String(err?.message || err)}`.slice(0, 300),
+    };
+  }
+
+  if (!res.ok || !res.body || typeof res.body !== "object") {
+    return {
+      verified: false,
+      verification_status: "verification_unavailable",
+      message: cashfreeMessage(res, "Secure ID bank check failed"),
+      http_status: res.status,
+    };
+  }
+
+  const b = res.body;
+  const rawMatch = b.name_match_result ? String(b.name_match_result).toUpperCase().trim() : null;
+  const accountStatus = (b.account_status ? String(b.account_status) : null)?.toUpperCase() || null;
+  const score = b.name_match_score === undefined || b.name_match_score === null ? null : Number(b.name_match_score);
+  const nameAtBank = asText(b.name_at_bank) || asText(b.name) || null;
+
+  // Cashfree's real verdicts: DIRECT_MATCH / GOOD_PARTIAL_MATCH /
+  // MODERATE_PARTIAL_MATCH / POOR_PARTIAL_MATCH / NO_MATCH, scored 0-100.
+  // (Older IPP-style "YES"/"NO" is accepted too.)
+  const STRONG = ["DIRECT_MATCH", "GOOD_PARTIAL_MATCH", "YES"];
+  const WEAK = ["POOR_PARTIAL_MATCH", "NO_MATCH", "NO"];
+  const MODERATE = ["MODERATE_PARTIAL_MATCH", "PARTIAL"];
+
+  let verification_status;
+  let verified = false;
+  let message = null;
+
+  if (accountStatus && accountStatus !== "VALID") {
+    verification_status = "account_invalid";
+    message = asText(b.account_status_code) || asText(b.message) || `Account status: ${accountStatus}`;
+  } else if (rawMatch && STRONG.includes(rawMatch)) {
+    verification_status = "verified";
+    verified = true;
+  } else if (rawMatch && MODERATE.includes(rawMatch)) {
+    // A real match, but not a strong one: verify, and say so on the panel.
+    verification_status = "verified";
+    verified = true;
+    message = `Name matched partially (${rawMatch}${Number.isFinite(score) ? `, score ${score}` : ""}).`;
+  } else if (rawMatch && WEAK.includes(rawMatch)) {
+    verification_status = "name_mismatch";
+    message = `Cashfree scored the name as ${rawMatch}${Number.isFinite(score) ? ` (${score})` : ""}.`;
+  } else if (nameAtBank && name && String(nameAtBank).toUpperCase().replace(/[^A-Z]/g, "") === String(name).toUpperCase().replace(/[^A-Z]/g, "")) {
+    // Account VALID and the bank's name matches the entered name exactly (normalised).
+    verification_status = "verified";
+    verified = true;
+    message = "Account valid and name at bank matches.";
+  } else if (nameAtBank && name) {
+    verification_status = "name_mismatch";
+    message = `Name at bank (${nameAtBank}) does not match the name entered (${name}).`;
+  } else if (nameAtBank) {
+    // The account exists and is valid, but Secure ID returned no name verdict.
+    // Claiming a match here would be a fake success.
+    verification_status = "name_unverified";
+    message = "Account found at the bank, but Secure ID did not return a name match.";
+  } else {
+    verification_status = "unverified";
+    message = asText(b.message) || "Secure ID returned no bank details.";
+  }
+
+  return {
+    verified,
+    verification_status,
+    name_at_bank: nameAtBank,
+    name_match_result: rawMatch,
+    name_match_score: Number.isFinite(score) ? score : null,
+    account_status: accountStatus,
+    bank_name: asText(b.bank_name) || null,
+    message,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Payment links                                                       */
+/* ------------------------------------------------------------------ */
+
+const RETURN_BASE = (process.env.FUNCTION_URL || "").replace(/\/+$/, "");
+
+function paymentFor(item) {
+  const p = item?.payment?.M;
+  if (!p) return null;
+  const out = {
+    link_id: p.link_id?.S || null,
+    link_url: p.link_url?.S || null,
+    amount: p.amount?.N ? Number(p.amount.N) : null,
+    status: p.status?.S || null,
+    created_at: p.created_at?.S || null,
+    updated_at: p.updated_at?.S || null,
+  };
+  if (p.error?.S) out.error = p.error.S;
+  return out;
+}
+
+function linkPurpose(agreement) {
+  const scope = asArray(agreement?.scope).map((s) => String(s).trim()).filter(Boolean);
+  const summary = scope.slice(0, 3).join(", ") || asText(agreement?.work_type) || "service work";
+  return `SaudaSakshi escrow: ${summary}`.slice(0, 500);
+}
+
+// Phone for the Cashfree customer record: the client's phone when we know one.
+function clientPhone(item, agreement) {
+  const candidates = [
+    agreement?.parties?.client?.phone,
+    agreement?.client_phone,
+    cleanPhone(agreement?.parties?.client?.name),
+    cleanPhone(item?.client_uid?.S),
+    cleanPhone(item?.created_by?.S),
+  ];
+  for (const c of candidates) {
+    const phone = cleanPhone(c);
+    if (phone) return phone;
+  }
+  return "9999999999";
+}
+
+function clientName(item, agreement) {
+  return (
+    asText(agreement?.parties?.client?.name) ||
+    asText(item?.created_by_name?.S) ||
+    asText(item?.client_uid?.S) ||
+    "Client"
+  ).slice(0, 100);
+}
+
+async function storePayment(id, payment) {
+  const now = new Date().toISOString();
+  const m = {};
+  for (const [k, v] of Object.entries(payment)) {
+    if (v === null || v === undefined) continue;
+    m[k] = typeof v === "number" ? { N: String(v) } : { S: String(v) };
+  }
+  await ddb.send(
+    new UpdateItemCommand({
+      TableName: TABLE,
+      Key: { id: { S: id } },
+      UpdateExpression: "SET payment = :p",
+      ExpressionAttributeValues: { ":p": { M: m } },
+    })
+  );
+  return now;
+}
+
+// Creates the escrow payment link exactly once per agreement.
+//
+// The claim is a conditional write of payment.link_id, so two concurrent
+// completion paths (grokbot callback + Sarvam inline, or a refresh racing a
+// webhook) can never mint two links for the same agreement.
+async function ensurePaymentLink(id, agreement) {
+  const price = Number(agreement?.price_inr);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  if (!CASHFREE_APP_ID || !CASHFREE_PG_SECRET) {
+    console.error(JSON.stringify({ evt: "payment_link_skipped", id, reason: "cashfree_not_configured" }));
+    return null;
+  }
+
+  const current = await getItem(id);
+  if (!current) return null;
+  const existing = paymentFor(current);
+  if (existing?.link_id) {
+    // A link already exists: never create another. If a previous attempt died
+    // before the URL was stored, recover it from Cashfree instead.
+    if (existing.link_url) return existing;
+    // Still in flight in another invocation — do not race it.
+    if (existing.status === "CREATING") return null;
+    const recovered = await recoverLinkUrl(id, existing);
+    if (recovered) return recovered;
+    return existing;
+  }
+
+  const linkId = `ss_${String(id).slice(0, 12)}_${Date.now()}`;
+  const claimedAt = new Date().toISOString();
+
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName: TABLE,
+        Key: { id: { S: id } },
+        UpdateExpression: "SET payment = :p",
+        ConditionExpression:
+          "attribute_not_exists(payment) OR attribute_not_exists(payment.link_id)",
+        ExpressionAttributeValues: {
+          ":p": {
+            M: {
+              link_id: { S: linkId },
+              amount: { N: String(price) },
+              status: { S: "CREATING" },
+              created_at: { S: claimedAt },
+            },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    if (err?.name === "ConditionalCheckFailedException") {
+      // Someone else won the race; use their link.
+      return paymentFor(await getItem(id));
+    }
+    throw err;
+  }
+
+  const payload = {
+    link_id: linkId,
+    link_amount: price,
+    link_currency: "INR",
+    link_purpose: linkPurpose(agreement),
+    customer_details: {
+      customer_phone: clientPhone(current, agreement),
+      customer_name: clientName(current, agreement),
+    },
+    link_notify: { send_sms: false, send_email: false },
+    link_meta: {
+      return_url: RETURN_BASE ? `${RETURN_BASE}/?agreement=${encodeURIComponent(id)}` : "",
+    },
+    link_notes: { agreement_id: id },
+  };
+
+  let res;
+  try {
+    res = await cashfreeFetch("/pg/links", { method: "POST", body: payload });
+  } catch (err) {
+    await releaseLinkClaim(id, `Payment link call failed: ${String(err?.message || err)}`);
+    return null;
+  }
+
+  if (!res.ok || !res.body?.link_url) {
+    await releaseLinkClaim(id, cashfreeMessage(res, "Cashfree rejected the payment link"));
+    return null;
+  }
+
+  const payment = {
+    link_id: res.body.link_id || linkId,
+    link_url: res.body.link_url,
+    amount: price,
+    status: String(res.body.link_status || "ACTIVE").toUpperCase(),
+    created_at: claimedAt,
+    updated_at: new Date().toISOString(),
+  };
+  await storePayment(id, payment);
+  console.log(JSON.stringify({ evt: "payment_link_created", id, link_id: payment.link_id, amount: price }));
+  return payment;
+}
+
+// No link was actually created, so drop the claim and record why.
+async function releaseLinkClaim(id, message) {
+  const msg = String(message || "payment link failed").slice(0, 300);
+  console.error(JSON.stringify({ evt: "payment_link_failed", id, error: msg }));
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName: TABLE,
+        Key: { id: { S: id } },
+        UpdateExpression: "SET payment.#s = :s, payment.error = :e REMOVE payment.link_id",
+        ExpressionAttributeNames: { "#s": "status" },
+        ExpressionAttributeValues: { ":s": { S: "link_failed" }, ":e": { S: msg } },
+      })
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ evt: "payment_release_failed", id, error: String(err?.message || err) }));
+  }
+}
+
+// A claimed link whose URL never landed: ask Cashfree for it rather than
+// creating a second one.
+async function recoverLinkUrl(id, payment) {
+  try {
+    const res = await cashfreeFetch(`/pg/links/${encodeURIComponent(payment.link_id)}`);
+    if (!res.ok || !res.body?.link_url) return null;
+    const next = {
+      ...payment,
+      link_url: res.body.link_url,
+      status: String(res.body.link_status || payment.status || "ACTIVE").toUpperCase(),
+      amount: Number(res.body.link_amount) || payment.amount,
+      updated_at: new Date().toISOString(),
+    };
+    await storePayment(id, next);
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+async function markInEscrow(id, source) {
+  const now = new Date().toISOString();
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName: TABLE,
+        Key: { id: { S: id } },
+        UpdateExpression: "SET #s = :s, in_escrow_at = :now, updated_at = :now",
+        ConditionExpression: "attribute_exists(id) AND #s <> :s",
+        ExpressionAttributeNames: { "#s": "status" },
+        ExpressionAttributeValues: { ":s": { S: "in_escrow" }, ":now": { S: now } },
+      })
+    );
+  } catch (err) {
+    if (err?.name !== "ConditionalCheckFailedException") throw err;
+    return false;
+  }
+  console.log(JSON.stringify({ evt: "in_escrow", id, source }));
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -545,7 +1076,7 @@ async function createAgreement(event) {
       if (!res.ok) throw new Error(`grokbot webhook ${res.status}`);
       await markWriter(id, WRITER_GROKBOT);
       console.log(JSON.stringify({ evt: "grokbot_dispatched", id, status: res.status }));
-      return json(202, { id, writer: WRITER_GROKBOT, status: "pending" });
+      return json(202, { id, status: "pending" });
     } catch (err) {
       console.error(JSON.stringify({ evt: "grokbot_failed", id, error: String(err?.message || err) }));
       // fall through to Sarvam
@@ -557,12 +1088,14 @@ async function createAgreement(event) {
     const agreement = await callSarvam(transcript, id);
     await markDone(id, agreement, WRITER_SARVAM);
     console.log(JSON.stringify({ evt: "sarvam_done", id, status: agreement.status }));
-    return json(201, { id, writer: WRITER_SARVAM, status: "done" });
+    await ensurePaymentLink(id, agreement);
+    return json(201, { id, status: "done" });
   } catch (err) {
     console.error(JSON.stringify({ evt: "sarvam_failed", id, error: String(err?.message || err) }));
     const agreement = fallbackAgreement(transcript, id, String(err?.message || err));
     await markDone(id, agreement, WRITER_SARVAM);
-    return json(201, { id, writer: WRITER_SARVAM, status: "done", degraded: true });
+    await ensurePaymentLink(id, agreement);
+    return json(201, { id, status: "done", degraded: true });
   }
 }
 
@@ -576,7 +1109,6 @@ async function getAgreement(id, event) {
   const out = {
     id: item.id?.S,
     status: item.status?.S || "pending",
-    writer: item.writer?.S || null,
     created_by: item.created_by?.S || null,
     creator_role: item.creator_role?.S || null,
     parties: partiesSummary(item),
@@ -594,6 +1126,43 @@ async function getAgreement(id, event) {
   if (agreement) out.agreement = agreement;
   if (item.created_at?.S) out.created_at = item.created_at.S;
   if (item.completed_at?.S) out.completed_at = item.completed_at.S;
+  if (item.in_escrow_at?.S) out.in_escrow_at = item.in_escrow_at.S;
+
+  const payment = paymentFor(item);
+
+  // Agreements drafted before escrow links existed: backfill once, lazily, for a
+  // priced draft. Never mints a second link (ensurePaymentLink is idempotent).
+  if (!payment && (item.status?.S === "done" || item.status?.S === "accepted" || item.status?.S === "in_escrow")) {
+    const agreementForLink = parseAgreementJson(item);
+    if (agreementForLink) {
+      try {
+        await ensurePaymentLink(id, agreementForLink);
+        const fresh = await getItem(id);
+        if (fresh) {
+          item.payment = fresh.payment;
+          item.status = fresh.status;
+          out.status = fresh.status?.S || out.status;
+        }
+      } catch (err) {
+        console.error(JSON.stringify({ evt: "payment_backfill_error", id, error: String(err?.message || err) }));
+      }
+    }
+  }
+
+  if (item.payment) out.payment = paymentFor(item);
+
+  // A provider bank badge only ever exposes the masked account.
+  if (out.parties.provider_uid) {
+    const provider = await getProvider(out.parties.provider_uid);
+    if (provider) out.provider_bank = providerBadge(provider);
+  }
+  if (out.parties.client_uid) {
+    try {
+      const client = await getProvider(out.parties.client_uid);
+      if (client) out.client_bank = providerBadge(client);
+    } catch {}
+  }
+
   return json(200, out);
 }
 
@@ -619,7 +1188,7 @@ async function acceptAgreement(id, event) {
   if (!canRead(item, caller.uid)) return json(403, { error: "not a party to this agreement" });
 
   const st = item.status?.S;
-  if (st !== "done" && st !== "accepted") {
+  if (st !== "done" && st !== "accepted" && st !== "in_escrow") {
     return json(409, { error: "agreement is still being drafted; accept once it is ready" });
   }
 
@@ -638,10 +1207,11 @@ async function acceptAgreement(id, event) {
   const field = isClient ? "accepted_by_client" : "accepted_by_provider";
   const values = { ":u": { S: caller.uid }, ":now": { S: now } };
   let expr = `SET ${field} = :u, updated_at = :now`;
-  if (isClient && item.accepted_by_provider?.S) {
+  // Never downgrade an escrow-funded agreement back to "accepted".
+  if (st === "done" && isClient && item.accepted_by_provider?.S) {
     expr += ", #s = :s, accepted_at = :now";
     values[":s"] = { S: "accepted" };
-  } else if (isProvider && item.accepted_by_client?.S) {
+  } else if (st === "done" && isProvider && item.accepted_by_client?.S) {
     expr += ", #s = :s, accepted_at = :now";
     values[":s"] = { S: "accepted" };
   }
@@ -695,7 +1265,227 @@ async function receiveCallback(id, token, event) {
   const agreement = normalizeAgreement(payload, id);
   await markDone(id, agreement, writer);
   console.log(JSON.stringify({ evt: "callback_done", id, writer }));
+  // Escrow link for a priced, fully drafted agreement (idempotent).
+  await ensurePaymentLink(id, agreement);
   return json(200, { ok: true });
+}
+
+/* ------------------------------------------------------------------ */
+/* Providers (Secure ID bank check)                                    */
+/* ------------------------------------------------------------------ */
+
+async function createProvider(event) {
+  const caller = callerFrom(event);
+  if (!caller.uid) return json(401, { error: "X-User-Id header is required" });
+
+  const body = readBody(event);
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body === "string") {
+    return json(400, { error: "body must be a JSON object" });
+  }
+
+  const fullName = cleanId(body.full_name ?? body.name)?.slice(0, 120) || null;
+  const phone = cleanPhone(body.phone);
+  const account = cleanAccount(body.bank_account ?? body.bank_account_number);
+  const ifsc = String(body.ifsc ?? "").replace(/\s+/g, "").toUpperCase();
+  const workType = cleanId(body.work_type)?.toLowerCase() || null;
+
+  const problems = [];
+  if (!fullName || fullName.length < 2) problems.push({ field: "full_name", error: "full name is required" });
+  if (!phone) problems.push({ field: "phone", error: "a 10-digit Indian phone number is required" });
+  if (!account) problems.push({ field: "bank_account", error: "bank account number must be 9-18 digits" });
+  if (!IFSC_RE.test(ifsc)) problems.push({ field: "ifsc", error: "IFSC must look like YESB0000262" });
+  if (!workType || !WORK_TYPES.includes(workType)) {
+    problems.push({ field: "work_type", error: 'work_type must be "physical", "professional" or "digital"' });
+  }
+  if (problems.length) return json(400, { error: "invalid provider details", problems });
+
+  const check = await verifyBankAccount({ account, ifsc, name: fullName, phone });
+
+  const now = new Date().toISOString();
+  const id = providerId(caller.uid);
+  const existing = await getProvider(caller.uid);
+
+  const item = {
+    id: { S: id },
+    entity: { S: "provider" },
+    uid: { S: caller.uid },
+    full_name: { S: fullName },
+    phone: { S: phone },
+    ifsc: { S: ifsc },
+    bank_account_masked: { S: maskAccount(account) },
+    bank_account_last4: { S: last4(account) },
+    work_type: { S: workType },
+    verified: { BOOL: check.verified === true },
+    verification_status: { S: check.verification_status },
+    created_at: { S: existing?.created_at?.S || now },
+    updated_at: { S: now },
+  };
+  if (check.name_at_bank) item.name_at_bank = { S: String(check.name_at_bank).slice(0, 200) };
+  if (check.name_match_result) item.name_match_result = { S: check.name_match_result };
+  if (Number.isFinite(check.name_match_score)) item.name_match_score = { N: String(check.name_match_score) };
+  if (check.account_status) item.account_status = { S: check.account_status };
+  if (check.bank_name) item.bank_name = { S: String(check.bank_name).slice(0, 120) };
+  if (check.message) item.cashfree_message = { S: String(check.message).slice(0, 300) };
+
+  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }));
+
+  console.log(
+    JSON.stringify({
+      evt: "provider_saved",
+      uid: caller.uid,
+      verified: item.verified.BOOL,
+      verification_status: check.verification_status,
+      cashfree_http: check.http_status ?? 200,
+    })
+  );
+
+  // 201 for a fresh record, 200 when re-verifying an existing one.
+  return json(existing ? 200 : 201, { provider: providerPublic(item) });
+}
+
+async function getMyProvider(event) {
+  const caller = callerFrom(event);
+  if (!caller.uid) return json(401, { error: "X-User-Id header is required" });
+  const item = await getProvider(caller.uid);
+  if (!item) return json(404, { error: "no provider profile for this user ID" });
+  return json(200, { provider: providerPublic(item) });
+}
+
+/* ------------------------------------------------------------------ */
+/* Payment status + webhook                                            */
+/* ------------------------------------------------------------------ */
+
+async function getPaymentStatus(id, event) {
+  const caller = callerFrom(event);
+  if (!caller.uid) return json(401, { error: "X-User-Id header is required" });
+  const item = await getItem(id);
+  if (!item) return json(404, { error: "not found" });
+  if (!canRead(item, caller.uid)) return json(403, { error: "not a party to this agreement" });
+
+  let payment = paymentFor(item);
+
+  if (payment?.link_id && CASHFREE_APP_ID && CASHFREE_PG_SECRET) {
+    try {
+      const res = await cashfreeFetch(`/pg/links/${encodeURIComponent(payment.link_id)}`);
+      if (res.ok && res.body) {
+        const remote = String(res.body.link_status || payment.status || "ACTIVE").toUpperCase();
+        const paid = Number(res.body.link_amount_paid) || 0;
+        const next = {
+          ...payment,
+          status: remote,
+          amount: Number(res.body.link_amount) || payment.amount,
+          updated_at: new Date().toISOString(),
+        };
+        if (paid > 0) next.amount_paid = paid;
+        if (remote !== payment.status) await storePayment(id, next);
+        payment = next;
+        if (remote === "PAID") {
+          await markInEscrow(id, "payment_refresh");
+          const fresh = await getItem(id);
+          if (fresh && fresh.status?.S) item.status = fresh.status;
+        }
+      } else {
+        console.error(
+          JSON.stringify({ evt: "payment_refresh_failed", id, status: res.status, error: cashfreeMessage(res, "link fetch failed") })
+        );
+      }
+    } catch (err) {
+      console.error(JSON.stringify({ evt: "payment_refresh_error", id, error: String(err?.message || err) }));
+    }
+  }
+
+  return json(200, {
+    id,
+    status: item.status?.S || null,
+    payment,
+  });
+}
+
+function verifyCashfreeSignature(event, rawBody) {
+  const secret = CASHFREE_PG_SECRET;
+  if (!secret) return { ok: false, reason: "webhook_secret_missing" };
+  const signature = header(event, "x-webhook-signature");
+  const timestamp = header(event, "x-webhook-timestamp");
+  if (!signature || !timestamp) return { ok: false, reason: "missing_signature_headers" };
+
+  const expected = createHmac("sha256", secret)
+    .update(String(timestamp) + rawBody)
+    .digest("base64");
+  const got = String(signature).trim();
+  const a = Buffer.from(expected);
+  const b = Buffer.from(got);
+  if (a.length !== b.length) return { ok: false, reason: "signature_mismatch" };
+  return { ok: timingSafeEqual(a, b), reason: timingSafeEqual(a, b) ? null : "signature_mismatch" };
+}
+
+async function receiveCashfreeWebhook(event) {
+  const rawBody = event.isBase64Encoded
+    ? Buffer.from(event.body || "", "base64").toString("utf8")
+    : typeof event.body === "string"
+      ? event.body
+      : "";
+
+  const sig = verifyCashfreeSignature(event, rawBody);
+  if (!sig.ok) {
+    console.error(JSON.stringify({ evt: "cashfree_webhook_rejected", reason: sig.reason }));
+    return json(401, { error: "invalid signature" });
+  }
+
+  let body = null;
+  try {
+    body = rawBody ? JSON.parse(rawBody) : null;
+  } catch {
+    return json(400, { error: "body must be JSON" });
+  }
+
+  const type = body?.type || body?.event_type || null;
+  const data = body?.data || body?.payload || {};
+  const link = data?.payment_link || data?.link || data?.order || {};
+  const linkStatus = String(
+    data?.link_status || link?.link_status || data?.payment?.payment_status || ""
+  ).toUpperCase();
+  const linkId = data?.link_id || link?.link_id || null;
+  const agreementId =
+    data?.link_notes?.agreement_id ||
+    link?.link_notes?.agreement_id ||
+    data?.order?.order_tags?.agreement_id ||
+    null;
+
+  console.log(JSON.stringify({ evt: "cashfree_webhook", type, link_id: linkId, link_status: linkStatus }));
+
+  if (type === "PAYMENT_LINK_EVENT" && linkStatus === "PAID") {
+    const id = agreementId || (linkId ? await findAgreementByLinkId(linkId) : null);
+    if (id) {
+      const item = await getItem(id);
+      if (item) {
+        const pay = paymentFor(item);
+        if (pay) {
+          await storePayment(id, { ...pay, status: "PAID", updated_at: new Date().toISOString() });
+        }
+        await markInEscrow(id, "webhook");
+      }
+    }
+  }
+
+  return json(200, { ok: true });
+}
+
+async function findAgreementByLinkId(linkId) {
+  // Demo-scale fallback: the note carries the id, but scan if it was stripped.
+  let startKey;
+  do {
+    const out = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE,
+        FilterExpression: "payment.link_id = :l",
+        ExpressionAttributeValues: { ":l": { S: String(linkId) } },
+        ExclusiveStartKey: startKey,
+      })
+    );
+    if (out.Items?.length) return out.Items[0].id?.S || null;
+    startKey = out.LastEvaluatedKey;
+  } while (startKey);
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -736,16 +1526,41 @@ export const handler = async (event = {}) => {
       return await acceptAgreement(decodeURIComponent(acceptMatch[1]), event);
     }
 
+    const payMatch = path.match(/^\/agreements\/([^/]+)\/payment\/?$/);
+    if (payMatch) {
+      if (method !== "GET") return json(405, { error: "method not allowed" });
+      return await getPaymentStatus(decodeURIComponent(payMatch[1]), event);
+    }
+
     const getMatch = path.match(/^\/agreements\/([^/]+)\/?$/);
     if (getMatch) {
       if (method !== "GET") return json(405, { error: "method not allowed" });
       return await getAgreement(decodeURIComponent(getMatch[1]), event);
     }
 
+    if (path === "/speak" || path === "/speak/") {
+      if (method !== "POST") return json(405, { error: "method not allowed" });
+      return await speakText(event);
+    }
+
+    if (path === "/transcribe" || path === "/transcribe/") {
+      if (method !== "POST") return json(405, { error: "method not allowed" });
+      return await transcribeAudio(event);
+    }
+
+    if (path === "/providers" || path === "/providers/") {
+      if (method !== "POST") return json(405, { error: "method not allowed" });
+      return await createProvider(event);
+    }
+
+    if (path === "/providers/me" || path === "/providers/me/") {
+      if (method !== "GET") return json(405, { error: "method not allowed" });
+      return await getMyProvider(event);
+    }
+
     if (path === "/webhooks/cashfree" || path === "/webhooks/cashfree/") {
       if (method !== "POST") return json(405, { error: "method not allowed" });
-      console.log(JSON.stringify({ evt: "cashfree_webhook", body: readBody(event) }));
-      return json(200, { ok: true });
+      return await receiveCashfreeWebhook(event);
     }
 
     return json(404, { error: "not found", path });

@@ -92,12 +92,14 @@ const noTok = await fetch(`${BASE}/agreements/${caBody.id}/callback`, { method: 
 check("callback with no token -> 403", noTok.status === 403, String(noTok.status));
 
 // 5. Misc
+// The Cashfree webhook now verifies x-webhook-signature (HMAC-SHA256 of
+// timestamp+rawBody), so an unsigned POST is rejected instead of accepted.
 const cf = await fetch(`${BASE}/webhooks/cashfree`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ event: "PAYMENT_SUCCESS", order_id: "ord_1" }),
 });
-check("cashfree webhook -> 200", cf.status === 200);
+check("unsigned cashfree webhook -> 401", cf.status === 401, String(cf.status));
 const missing = await fetch(`${BASE}/agreements/00000000-0000-0000-0000-000000000000`, { headers: H });
 check("unknown id -> 404", missing.status === 404);
 const badBody = await fetch(`${BASE}/agreements`, { method: "POST", headers: H, body: "{}" });
